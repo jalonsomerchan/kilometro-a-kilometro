@@ -16,9 +16,11 @@ var autosave_clock: float = 0.0
 var notice: String = ""
 var notice_time: float = 0.0
 var notice_road_id: int = -1
+var notice_point: Array = []
 var screen: String = "title"
 var overlay: CanvasLayer
 var panel: PanelContainer
+var menu_scroll: ScrollContainer
 var column: VBoxContainer
 var title_label: Label
 var footer: Label
@@ -45,6 +47,8 @@ var shoulder_right: bool = false
 var shoulder_combo_used: bool = false
 var focus_memory: Dictionary = {}
 var menu_direction_time: int = -1000
+var analog_x_engaged: bool = false
+var analog_y_engaged: bool = false
 const MENU_DIRECTION_INTERVAL_MS: int = 200
 const CONTROL_LABELS: Dictionary = {"move_up":"Mover arriba","move_down":"Mover abajo","move_left":"Mover izquierda","move_right":"Mover derecha","accept_action":"Aceptar","back_action":"Cancelar","inspect_action":"Inspector","menu_action":"Menú","road_prev":"Vía anterior","road_next":"Vía siguiente","pause_action":"Pausa","tool_action":"Herramienta siguiente","tool_previous":"Herramienta anterior","zoom_in":"Acercar","zoom_out":"Alejar","notice_go":"Ir al aviso","notice_dismiss":"Descartar aviso"}
 const DEFAULT_KEYS: Dictionary = {"move_up":[KEY_UP,KEY_W],"move_down":[KEY_DOWN,KEY_S],"move_left":[KEY_LEFT,KEY_A],"move_right":[KEY_RIGHT,KEY_D],"accept_action":[KEY_ENTER,KEY_SPACE],"back_action":[KEY_ESCAPE,KEY_DELETE],"inspect_action":[KEY_I],"menu_action":[KEY_M],"road_prev":[KEY_Q],"road_next":[KEY_E],"pause_action":[KEY_P],"tool_action":[KEY_TAB],"tool_previous":[KEY_F8],"zoom_in":[KEY_EQUAL,KEY_KP_ADD],"zoom_out":[KEY_MINUS,KEY_KP_SUBTRACT],"notice_go":[KEY_F6],"notice_dismiss":[KEY_F7]}
@@ -96,7 +100,7 @@ func _configure_input() -> void:
   event.axis = axis_data[1]
   event.axis_value = axis_data[2]
   InputMap.action_add_event(axis_data[0],event)
-  InputMap.action_set_deadzone(axis_data[0],0.4)
+  InputMap.action_set_deadzone(axis_data[0],0.65 if axis_data[0].begins_with("move_") else 0.4)
 
 func _input(event: InputEvent) -> void:
  if event is InputEventJoypadButton or event is InputEventJoypadMotion: last_device = "mando"
@@ -171,7 +175,7 @@ func _process(delta: float) -> void:
    autosave_clock += Balance.FIXED_STEP
   if not state.latest_notice.is_empty() and state.latest_notice != shown_event_notice:
    shown_event_notice = state.latest_notice
-   _notify(state.latest_notice,state.notice_road)
+   _notify(state.latest_notice,state.notice_road,state.notice_point)
   if autosave_clock >= 120.0:
    autosave_clock = 0.0
    var error: String = SaveManager.save_game(state,true)
@@ -185,6 +189,10 @@ func _unhandled_input(event: InputEvent) -> void:
   if event.is_action_pressed("back_action"):
    get_viewport().set_input_as_handled()
    _back()
+  return
+ if event is InputEventJoypadMotion and event.axis in [JOY_AXIS_LEFT_X,JOY_AXIS_LEFT_Y]:
+  _handle_analog_cursor(event)
+  get_viewport().set_input_as_handled()
   return
  if event.is_action_pressed("notice_go") and notice_time > 0.0:
   _go_to_notice()
@@ -215,6 +223,18 @@ func _move(dir: Vector2i) -> void:
  cursor += dir
  selected_road = 0
  _refresh_proposal()
+
+func _handle_analog_cursor(event: InputEventJoypadMotion) -> void:
+ var engaged: bool = analog_x_engaged if event.axis == JOY_AXIS_LEFT_X else analog_y_engaged
+ if absf(event.axis_value) < 0.35:
+  if event.axis == JOY_AXIS_LEFT_X: analog_x_engaged = false
+  else: analog_y_engaged = false
+  return
+ if engaged or absf(event.axis_value) < 0.65: return
+ if event.axis == JOY_AXIS_LEFT_X: analog_x_engaged = true
+ else: analog_y_engaged = true
+ if event.axis == JOY_AXIS_LEFT_X: _move(Vector2i.RIGHT if event.axis_value > 0.0 else Vector2i.LEFT)
+ else: _move(Vector2i.DOWN if event.axis_value > 0.0 else Vector2i.UP)
 
 func _road_type_notice() -> void:
  var requirement: String = state.unlock_reason(selected_type)
@@ -266,7 +286,7 @@ func _delete_prompt() -> void:
  if roads.is_empty(): _notify("No hay una carretera que demoler aquí."); return
  var road: Dictionary = roads[mini(selected_road,roads.size()-1)]
  _make_panel("Demoler carretera", "Se eliminará el tramo completo. Los vehículos en él se retirarán sin ingreso. No hay devolución.\n" + state.closure_impact(int(road.id)),"delete")
- _button("Demoler",func() -> void: state.roads.erase(road); state.route_cache.clear(); _close_panel(); _notify("Carretera demolida."))
+ _button("Demoler",func() -> void: state.remove_road(road); _close_panel(); _notify("Carretera demolida."))
  _button("Cancelar",func() -> void: _close_panel())
  _focus_first()
 
@@ -373,6 +393,13 @@ func _signal_menu(road: Dictionary) -> void:
    var other_index: int = other.path.find([cursor.x,cursor.y])
    if RoadNetwork._level(other,other_index) == RoadNetwork._level(road,index): connects = true
  if connects:
+  var junction_key: String = state._junction_key(cursor)
+  if state.roundabouts.has(junction_key):
+   _button("Retirar rotonda",func() -> void: _confirm_remove_roundabout(junction_key))
+  else:
+   var reason: String = state.can_build_roundabout(cursor)
+   if reason.is_empty(): _button("Construir rotonda",func() -> void: _roundabout_review())
+   else: _label("Rotonda: " + reason)
   for direction: int in [-1,1]:
    var from_index: int = index-direction
    if from_index < 0 or from_index >= road.path.size(): continue
@@ -383,12 +410,30 @@ func _signal_menu(road: Dictionary) -> void:
  _button("Cancelar",func() -> void: _close_panel())
  _focus_first()
 
+func _roundabout_review() -> void:
+ var point: Vector2i = cursor
+ _make_panel("Construir rotonda", "Coste: %.0f € · obra: %.0f s\nLa circulación continúa durante la obra. Una vez terminada, aumenta la capacidad del cruce; las señales existentes quedan en reserva hasta retirar la rotonda." % [Balance.ROUNDABOUT_COST,Balance.ROUNDABOUT_WORK_SECONDS],"action")
+ var reason: String = state.can_build_roundabout(point)
+ if reason.is_empty(): _button("Confirmar construcción",func() -> void:
+  if state.build_roundabout(point): _close_panel(); _notify("Construcción de la rotonda iniciada.")
+  else: _close_panel(); _notify("No se pudo construir la rotonda."))
+ else: _label(reason)
+ _button("Cancelar",func() -> void: _close_panel())
+ _focus_first()
+
+func _confirm_remove_roundabout(key: String) -> void:
+ _make_panel("Retirar rotonda", "El cruce recuperará las señales anteriores. No se devuelve el coste.","action")
+ _button("Retirar",func() -> void: state.roundabouts.erase(key); state.route_cache.clear(); _close_panel(); _notify("Rotonda retirada."))
+ _button("Cancelar",func() -> void: _close_panel())
+ _focus_first()
+
 func _set_signal(road: Dictionary, index: int, direction: int, kind: String) -> void:
  if not road.has("signals"): road.signals = []
  var existing: Array = road.signals.duplicate()
  for signal_data: Dictionary in existing:
   if int(signal_data.index) == index and int(signal_data.direction) == direction: road.signals.erase(signal_data)
  if kind != "none": road.signals.append({"index":index,"direction":direction,"type":kind})
+ state.route_cache.clear()
  _close_panel()
  _notify("Señal actualizada para la entrada seleccionada.")
 
@@ -426,13 +471,15 @@ func _make_panel(heading: String, description: String, next_screen: String) -> v
  style.set_content_margin_all(24)
  panel.add_theme_stylebox_override("panel",style)
  overlay.add_child(panel)
- var scroll := ScrollContainer.new()
- scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
- panel.add_child(scroll)
+ menu_scroll = ScrollContainer.new()
+ menu_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+ menu_scroll.follow_focus = true
+ menu_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+ panel.add_child(menu_scroll)
  column = VBoxContainer.new()
  column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
  column.add_theme_constant_override("separation",8)
- scroll.add_child(column)
+ menu_scroll.add_child(column)
  title_label = Label.new()
  title_label.text = heading
  title_label.add_theme_font_size_override("font_size",roundi(30*float(settings.get("ui_scale",1.0))))
@@ -454,7 +501,9 @@ func _button(label: String, action: Callable) -> Button:
  button.add_theme_font_size_override("font_size",roundi(19*float(settings.get("ui_scale",1.0))))
  button.pressed.connect(action)
  var focus_screen: String = screen
- button.focus_entered.connect(func() -> void: focus_memory[focus_screen] = button.text)
+ button.focus_entered.connect(func() -> void:
+  focus_memory[focus_screen] = button.text
+ )
  var focus_style := StyleBoxFlat.new()
  focus_style.bg_color = Color.TRANSPARENT
  focus_style.border_color = Color("f7db82")
@@ -464,15 +513,21 @@ func _button(label: String, action: Callable) -> Button:
  column.add_child(button)
  return button
 
+func _focus_if_current(control: Control, expected_panel: Control) -> void:
+ if not is_instance_valid(control) or not is_instance_valid(expected_panel): return
+ if panel != expected_panel or expected_panel.is_queued_for_deletion() or control.is_queued_for_deletion(): return
+ if not expected_panel.is_ancestor_of(control): return
+ control.grab_focus()
+
 func _focus_first() -> void:
  var remembered: String = str(focus_memory.get(screen,""))
  for child: Node in column.get_children():
   if child is Button and child.text == remembered:
-   child.call_deferred("grab_focus")
+   call_deferred("_focus_if_current",child,panel)
    return
  for child: Node in column.get_children():
   if child is Button or child is LineEdit:
-   child.call_deferred("grab_focus")
+   call_deferred("_focus_if_current",child,panel)
    return
 
 func _show_title() -> void:
@@ -496,11 +551,13 @@ func _new_menu() -> void:
  input_name = LineEdit.new()
  input_name.text = "Partida " + Time.get_datetime_string_from_system().replace(":","-")
  input_name.virtual_keyboard_enabled = true
+ input_name.focus_mode = Control.FOCUS_CLICK
  column.add_child(input_name)
  _label("Semilla (número)")
  input_seed = LineEdit.new()
  input_seed.text = str(randi_range(1,999999))
  input_seed.virtual_keyboard_enabled = true
+ input_seed.focus_mode = Control.FOCUS_CLICK
  column.add_child(input_seed)
  var mode := OptionButton.new()
  mode.add_item("Partida guiada")
@@ -519,7 +576,7 @@ func _new_menu() -> void:
  _button("Volver",func() -> void: _show_title())
  # Default to the button so a controller can start without entering text.
  for child: Node in column.get_children():
-  if child is Button: child.call_deferred("grab_focus"); break
+  if child is Button: call_deferred("_focus_if_current",child,panel); break
 
 func _load_menu() -> void:
  _make_panel("Cargar partida", "Selecciona un guardado.","load")
@@ -637,7 +694,7 @@ func _offer_contract() -> void:
  _label("No hay conexiones nuevas disponibles entre las primeras ciudades conocidas.")
 
 func _traffic_summary() -> void:
- var text: String = "Demanda potencial: %.1f viajes\nIniciados: %d · completados: %d\nSin atender: %d · interrumpidos: %d\nViajes con retraso: %d\n\nPenalización acumulada por atasco: %.0f €\nPenalización acumulada por retrasos: %.0f €\nPenalizaciones de hoy: %.0f € · ayer: %.0f €\n\nAtasco: 2,5 €/s por cada 100%% de ocupación sobre la capacidad. Retraso: 4 €/s por encima de 1,6 segundos por casilla en línea recta (mínimo 3 s; máximo 80%% del ingreso)." % [state.potential_demand,state.started_trips,state.completed,state.unmet_demand,state.interrupted,state.late_trips,state.congestion_fines,state.delay_fines,state.today_penalties,state.yesterday_penalties]
+ var text: String = "Demanda potencial: %.1f viajes\nIniciados: %d · completados: %d\nSin atender: %d · interrumpidos: %d\nViajes con retraso: %d\n\nPenalización acumulada por atasco: %.0f €\n  Incluidas colas en cruces: %.0f €\nPenalización acumulada por retrasos: %.0f €\nPenalizaciones de hoy: %.0f € · ayer: %.0f €\n\nAtasco: 2,5 €/s por cada 100%% de ocupación sobre la capacidad; las colas cobran 0,6 €/s por cada vehículo a partir del tercero. Retraso: 4 €/s por encima de 1,6 segundos por casilla en línea recta (mínimo 3 s; máximo 80%% del ingreso)." % [state.potential_demand,state.started_trips,state.completed,state.unmet_demand,state.interrupted,state.late_trips,state.congestion_fines,state.junction_fines,state.delay_fines,state.today_penalties,state.yesterday_penalties]
  _make_panel("Balance y tráfico",text,"traffic_summary")
  _button("Volver",func() -> void: _game_menu())
  _focus_first()
@@ -725,6 +782,15 @@ func _inspector() -> void:
   for road: Dictionary in roads:
    for entry: Dictionary in event.affected:
     if int(entry.road_id) == int(road.id) and not bool(entry.cleared): desc += "\n%s: quedan %.0f s%s" % [event.title,event.remaining," · CERRADA" if entry.closed else ""]
+ var junction_key: String = state._junction_key(cursor)
+ var junction_roads: Array = _road_at(cursor)
+ if junction_roads.size() > 1:
+  var queue: int = int(state.junction_queue_counts.get(junction_key,0))
+  var mode: String = "sin regular"
+  if state.roundabouts.has(junction_key):
+   mode = "rotonda" if float(state.roundabouts[junction_key].work) <= 0.0 else "rotonda en obras (%.0f s)" % state.roundabouts[junction_key].work
+  elif state._junction_headway(junction_key) < Balance.JUNCTION_UNCONTROLLED_HEADWAY: mode = "con señales"
+  desc += "\nCruce %s · %d vehículos esperando · paso cada %.2f s" % [mode,queue,state._junction_headway(junction_key)]
  _make_panel("Inspector",desc,"inspector")
  if not roads.is_empty() and int(roads[mini(selected_road,roads.size()-1)].type) == 6:
   var toll_road: Dictionary = roads[mini(selected_road,roads.size()-1)]
@@ -753,15 +819,17 @@ func _close_panel() -> void:
  for child: Node in overlay.get_children(): child.queue_free()
  screen = "game"
 
-func _notify(message: String, road_id: int = -1) -> void:
+func _notify(message: String, road_id: int = -1, point: Array = []) -> void:
  notice = message
  notice_road_id = road_id
+ notice_point = point.duplicate()
  notice_time = 12.0
 
 func _dismiss_notice() -> void:
  # Hide only the banner; active events and their consequences continue.
  notice_time = 0.0
  notice_road_id = -1
+ notice_point = []
 
 func _go_to_notice() -> void:
  if state == null or notice_road_id < 0: return
@@ -769,7 +837,7 @@ func _go_to_notice() -> void:
  if road.is_empty() or road.path.is_empty():
   _notify("El tramo del aviso ya no existe.")
   return
- var point: Array = road.path[int(road.path.size()/2)]
+ var point: Array = notice_point if notice_point.size() == 2 else road.path[int(road.path.size()/2)]
  cursor = Vector2i(int(point[0]),int(point[1]))
  camera_cell = Vector2(cursor)
  selected_road = 0
@@ -805,7 +873,9 @@ func _draw() -> void:
   for road: Dictionary in state.roads: _draw_road_layer(road,offset,cell,true)
   for road: Dictionary in state.roads: _draw_road_layer(road,offset,cell,false)
   for road: Dictionary in state.roads: _draw_road_details(road,offset,cell,junctions)
+  _draw_roundabouts(offset,cell)
   for road: Dictionary in state.roads: _draw_overpasses(road,offset,cell)
+  _draw_junction_queues(offset,cell)
   if drawing and has_waypoint:
    draw_circle(offset+(Vector2(waypoint)+Vector2(0.5,0.5))*cell,maxf(5.0,cell*0.23),Color("f5df81"),false,2.0)
   if drawing and proposal.has("path"):
@@ -952,6 +1022,8 @@ func _draw_road_details(road: Dictionary, offset: Vector2, cell: float, junction
   var previous_index: int = index-int(signal_data.direction)
   if index < 0 or index >= path.size() or previous_index < 0 or previous_index >= path.size(): continue
   var point: Vector2 = RoadGeometry._vector(path[index])
+  var sign_key: String = state._junction_key(Vector2i(point))
+  if state.roundabouts.has(sign_key) and float(state.roundabouts[sign_key].work) <= 0.0: continue
   var previous: Vector2 = RoadGeometry._vector(path[previous_index])
   var toward: Vector2 = (previous-point).normalized()
   var position: Vector2 = offset+(point+Vector2(0.5,0.5)+toward*0.28)*cell
@@ -971,6 +1043,32 @@ func _draw_road_details(road: Dictionary, offset: Vector2, cell: float, junction
   draw_circle(middle,maxf(6.0,cell*0.3),Color("b6342e"))
   draw_line(middle-Vector2(5,0),middle+Vector2(5,0),Color.WHITE,2.0)
 
+func _draw_junction_queues(offset: Vector2, cell: float) -> void:
+ for key: String in state.junction_queue_counts:
+  var count: int = int(state.junction_queue_counts[key])
+  if count < 2: continue
+  var parts: PackedStringArray = key.split(",")
+  if parts.size() != 2: continue
+  var center: Vector2 = offset+(Vector2(float(parts[0]),float(parts[1]))+Vector2(0.5,0.5))*cell
+  if not Rect2(Vector2(-100,-100),get_viewport_rect().size+Vector2(200,200)).has_point(center): continue
+  var label: String = "Cola: %d" % count
+  var box := Rect2(center+Vector2(cell*0.45,-cell*0.8),Vector2(64,21))
+  draw_rect(box,Color(0.32,0.12,0.09,0.92) if count >= 5 else Color(0.38,0.29,0.12,0.94))
+  draw_string(ThemeDB.fallback_font,box.position+Vector2(5,15),label,HORIZONTAL_ALIGNMENT_LEFT,-1,13,Color.WHITE)
+
+func _draw_roundabouts(offset: Vector2, cell: float) -> void:
+ for key: String in state.roundabouts:
+  var item: Dictionary = state.roundabouts[key]
+  var center: Vector2 = offset+(Vector2(float(item.x),float(item.y))+Vector2(0.5,0.5))*cell
+  if not Rect2(Vector2(-cell,-cell),get_viewport_rect().size+Vector2(2*cell,2*cell)).has_point(center): continue
+  var radius: float = maxf(5.0,cell*0.48)
+  draw_circle(center,radius+1.5,Color("49534e"))
+  draw_circle(center,radius,Color("808886") if float(item.work)<=0.0 else Color("bd8a50"))
+  draw_arc(center,radius*0.72,0.0,TAU,24,Color("ede8d6"),maxf(1.0,cell*0.035),true)
+  draw_circle(center,radius*0.47,Color("96a883"))
+  if float(item.work)>0.0:
+   draw_string(ThemeDB.fallback_font,center+Vector2(-4,4),"!",HORIZONTAL_ALIGNMENT_LEFT,-1,12,Color.WHITE)
+
 func _draw_overpasses(road: Dictionary, offset: Vector2, cell: float) -> void:
  var path: Array = road.path
  for index_value: Variant in road.get("raised_indices",[]):
@@ -986,6 +1084,17 @@ func _draw_overpasses(road: Dictionary, offset: Vector2, cell: float) -> void:
   draw_polyline(points,_road_color(road),width,true)
 
 func _draw_vehicle(vehicle: Dictionary, offset: Vector2, cell: float) -> void:
+ if vehicle.has("signal_pending"):
+  var pending: Dictionary = vehicle.signal_pending
+  var incoming: Dictionary = state._road_by_id(int(pending.get("previous_road",-1)))
+  var at: int = int(pending.get("previous_index",-1))
+  var from: int = int(pending.get("approach_index",-1))
+  if not incoming.is_empty() and at >= 0 and from >= 0 and at < incoming.path.size() and from < incoming.path.size():
+   var junction: Vector2 = RoadGeometry._vector(incoming.path[at])
+   var approach: Vector2 = RoadGeometry._vector(incoming.path[from])
+   var position: Vector2 = junction.lerp(approach,0.32)
+   draw_circle(offset+(position+Vector2(0.5,0.5))*cell,maxf(2.5,cell*0.1),Color("fff9df"))
+   return
  if vehicle.has("route"):
   var route: Array = vehicle.route
   var route_index: int = int(vehicle.route_index)
@@ -1015,37 +1124,57 @@ func _draw_fit(font: Font, position: Vector2, value: String, desired_size: int, 
 func _draw_hud(size: Vector2) -> void:
  var font: Font = ThemeDB.fallback_font
  var scale: float = float(settings.get("ui_scale",1.0))
- var heading_size: int = roundi(19*scale)
- var help_size: int = roundi(16*scale)
- var top_height: float = 68.0*scale
- var bottom_height: float = 92.0*scale
- draw_rect(Rect2(0,0,size.x,top_height),Color(0.04,0.09,0.10,0.9))
- var first: String = "%.0f €   ·   Ingresos %.0f €   ·   Gastos %.0f €" % [state.money,state.income,state.expenses]
- var second: String = "Penalización hoy %.0f €   ·   Viajes %d   ·   Día %d   ·   %s" % [state.today_penalties,state.completed,1+int(state.elapsed/120.0),"Pausa" if simulation_speed == 0 else str(simulation_speed)+"×"]
- _draw_fit(font,Vector2(20,27*scale),first,heading_size,size.x-40,Color.WHITE)
- _draw_fit(font,Vector2(20,55*scale),second,heading_size,size.x-40,Color.WHITE)
- draw_rect(Rect2(0,size.y-bottom_height,size.x,bottom_height),Color(0.04,0.09,0.10,0.94))
- var details: String = "%s · %s · (%d, %d) · %s" % [tool,Balance.ROADS[selected_type].name,cursor.x,cursor.y,state.world.terrain(cursor)]
+ var heading_size: int = roundi(18*scale)
+ var value_size: int = roundi(21*scale)
+ var label_size: int = roundi(11*scale)
+ var help_size: int = roundi(14*scale)
+ var top_height: float = 76.0*scale
+ var bottom_height: float = 104.0*scale
+ var inset: float = 16.0*scale
+ var content_width: float = size.x-inset*2.0
+ var column_width: float = content_width/4.0
+ var surface := Color(0.035,0.075,0.075,0.96)
+ var muted := Color("b8c9bd")
+ draw_rect(Rect2(0,0,size.x,top_height),surface)
+ draw_rect(Rect2(0,top_height-2.0*scale,size.x,2.0*scale),Color("b18a52"))
+ var metrics: Array = [
+  ["TESORERÍA", "%.0f €" % state.money, Color("f2e4b3")],
+  ["INGRESOS", "+%.0f €" % state.income, Color("a9d3a3")],
+  ["GASTOS", "−%.0f €" % state.expenses, Color("e5b6a1")],
+  ["PENALIZACIÓN HOY", "%.0f €" % state.today_penalties, Color("edc879")]
+ ]
+ for index: int in range(metrics.size()):
+  var x: float = inset+column_width*index
+  var entry: Array = metrics[index]
+  _draw_fit(font,Vector2(x,23.0*scale),str(entry[0]),label_size,column_width-12.0*scale,muted)
+  _draw_fit(font,Vector2(x,51.0*scale),str(entry[1]),value_size,column_width-12.0*scale,entry[2])
+  if index > 0: draw_line(Vector2(x-10.0*scale,13.0*scale),Vector2(x-10.0*scale,62.0*scale),Color(0.72,0.82,0.75,0.16),1.0*scale)
+ var sim_status: String = "%d viajes  ·  Día %d  ·  %s" % [state.completed,1+int(state.elapsed/120.0),"PAUSADO" if simulation_speed == 0 else "%d×" % simulation_speed]
+ _draw_fit(font,Vector2(size.x-inset-230.0*scale,top_height-7.0*scale),sim_status,label_size,220.0*scale,muted)
+ var details: String = "%s  /  %s  /  (%d, %d)  /  %s" % [tool,Balance.ROADS[selected_type].name,cursor.x,cursor.y,state.world.terrain(cursor)]
  if drawing:
-  if proposal.has("error"): details += " · " + str(proposal.error)
-  elif proposal.has("length"): details += " · %.0f € · puente %d" % [state.price(proposal,selected_type),proposal.water]
- _draw_fit(font,Vector2(20,size.y-bottom_height+25*scale),details,heading_size,size.x-40,Color("f5e6ad"))
- var help_a: String = "A marcar / confirmar   B cancelar / demoler   Y inspector" if last_device == "mando" else "%s marcar / confirmar   %s cancelar / demoler   %s inspector" % [_key_hint("accept_action","Intro"),_key_hint("back_action","Esc"),_key_hint("inspect_action","I")]
- var help_b: String = "X menú   LB/RB vía   L5/R5 herramienta   Start pausa" if last_device == "mando" else "%s menú   %s/%s vía   %s pausa   %s/%s herramienta" % [_key_hint("menu_action","M"),_key_hint("road_prev","Q"),_key_hint("road_next","E"),_key_hint("pause_action","P"),_key_hint("tool_previous","F8"),_key_hint("tool_action","Tab")]
- _draw_fit(font,Vector2(20,size.y-bottom_height+52*scale),help_a,help_size,size.x-40,Color.WHITE)
- _draw_fit(font,Vector2(20,size.y-bottom_height+76*scale),help_b,help_size,size.x-40,Color.WHITE)
+  if proposal.has("error"): details += "  /  " + str(proposal.error)
+  elif proposal.has("length"): details += "  /  %.0f €  /  puente %d" % [state.price(proposal,selected_type),proposal.water]
+ var footer_y: float = size.y-bottom_height
+ draw_rect(Rect2(0,footer_y,size.x,bottom_height),surface)
+ draw_rect(Rect2(0,footer_y,size.x,2.0*scale),Color("b18a52"))
+ _draw_fit(font,Vector2(inset,footer_y+27.0*scale),details,heading_size,content_width,Color("f2e4b3"))
+ var help_a: String = "A  Marcar / confirmar     B  Cancelar / demoler     Y  Inspector" if last_device == "mando" else "%s  Marcar / confirmar     %s  Cancelar / demoler     %s  Inspector" % [_key_hint("accept_action","Intro"),_key_hint("back_action","Esc"),_key_hint("inspect_action","I")]
+ var help_b: String = "X  Menú     LB / RB  Vía     LB + RB  Herramienta     Start  Pausa" if last_device == "mando" else "%s  Menú     %s / %s  Vía     %s  Pausa     %s / %s  Herramienta" % [_key_hint("menu_action","M"),_key_hint("road_prev","Q"),_key_hint("road_next","E"),_key_hint("pause_action","P"),_key_hint("tool_previous","F8"),_key_hint("tool_action","Tab")]
+ _draw_fit(font,Vector2(inset,footer_y+54.0*scale),help_a,help_size,content_width,Color.WHITE)
+ _draw_fit(font,Vector2(inset,footer_y+81.0*scale),help_b,help_size,content_width,muted)
  var legend: String = ""
  if view_mode == "tráfico": legend = "Tráfico: verde fluido · ámbar cargado · rojo saturado"
  elif view_mode == "conservación": legend = "Conservación: verde ≥ 60% · ámbar < 60% · barrera = cierre"
  elif view_mode == "demanda": legend = "Demanda potencial estimada por día hacia ciudades cercanas"
  if not legend.is_empty():
-  draw_rect(Rect2(20,size.y-bottom_height-34*scale,minf(size.x-40,650*scale),30*scale),Color(0.04,0.09,0.10,0.9))
-  _draw_fit(font,Vector2(30,size.y-bottom_height-12*scale),legend,help_size,size.x-60,Color.WHITE)
+  draw_rect(Rect2(inset,size.y-bottom_height-34*scale,minf(content_width,650*scale),30*scale),surface)
+  _draw_fit(font,Vector2(inset+10.0*scale,size.y-bottom_height-12*scale),legend,help_size,minf(content_width-20.0*scale,630*scale),Color.WHITE)
  if notice_time > 0.0:
-  draw_rect(Rect2(20,top_height+12,minf(size.x-40,1000*scale),64*scale),Color(0.06,0.12,0.13,0.93))
-  _draw_fit(font,Vector2(32,top_height+34*scale),notice,roundi(18*scale),minf(size.x-64,976*scale),Color.WHITE)
+  draw_rect(Rect2(inset,top_height+12,minf(size.x-inset*2.0,1000*scale),64*scale),Color(0.06,0.12,0.13,0.96))
+  _draw_fit(font,Vector2(inset+12.0*scale,top_height+34),notice,roundi(18*scale),minf(size.x-inset*2.0-24.0*scale,976*scale),Color.WHITE)
   var can_go: bool = notice_road_id >= 0 and not state._road_by_id(notice_road_id).is_empty()
   var go_key: String = "R4" if last_device == "mando" else _key_hint("notice_go","F6")
   var dismiss_key: String = "L4" if last_device == "mando" else _key_hint("notice_dismiss","F7")
   var hint: String = "%s ir al aviso   ·   %s descartar" % [go_key,dismiss_key] if can_go else "%s descartar" % dismiss_key
-  _draw_fit(font,Vector2(32,top_height+59*scale),hint,help_size,minf(size.x-64,976*scale),Color("f5e6ad"))
+  _draw_fit(font,Vector2(inset+12.0*scale,top_height+59*scale),hint,help_size,minf(size.x-inset*2.0-24.0*scale,976*scale),Color("f2e4b3"))

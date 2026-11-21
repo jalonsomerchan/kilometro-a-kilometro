@@ -9,6 +9,7 @@ static func forecast(state: GameState, kind: String, road_id: int, delay: float 
  if road.is_empty(): return
  var point: Vector2i = _road_midpoint(road)
  state.forecasts.append({"kind":kind,"road_id":road_id,"start_at":state.elapsed+delay,"duration":duration,"x":point.x,"y":point.y})
+ state.notice_point = []
  state.latest_notice = "Previsión: %s cerca de (%d,%d) en %.0f s." % [TITLES.get(kind,kind),point.x,point.y,delay]
  state.notice_road = road_id
 
@@ -26,6 +27,7 @@ static func start(state: GameState, kind: String, road_id: int, duration: float 
   if _distance_to_road(candidate,center) <= RADIUS:
    _affect(state,event,candidate)
  state.route_cache.clear()
+ state.notice_point = []
  state.latest_notice = "%s en (%d,%d): %d tramos afectados durante %.0f s." % [event.title,center.x,center.y,event.affected.size(),duration]
  state.notice_road = road_id
  return event
@@ -86,10 +88,12 @@ static func advance(state: GameState, dt: float) -> void:
    for road: Dictionary in state.roads:
     if _distance_to_road(road,center) <= RADIUS*1.5 and _road_has_forest(state,road): _affect(state,event,road)
    state.route_cache.clear()
+   state.notice_point = []
    state.latest_notice = "El incendio se extiende: %d tramos afectados." % event.affected.size()
    state.notice_road = int(event.road_id)
   if float(event.remaining) > 0.0: continue
   for entry: Dictionary in event.affected: _release(state,event,entry,true)
+  state.notice_point = []
   state.latest_notice = "%s terminado cerca del tramo %d." % [event.title,event.road_id]
   state.notice_road = int(event.road_id)
   finished.append(event)

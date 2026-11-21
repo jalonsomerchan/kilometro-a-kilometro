@@ -8,6 +8,9 @@ func _initialize() -> void:
  var busy: Array = RoadNetwork.route(roads,Vector2i(0,0),Vector2i(4,0),-1,{1:2.0,2:0.0})
  assert(int(normal[0].road)==1, "En condiciones normales debe elegirse la vía directa")
  assert(int(busy[0].road)==2, "La alternativa debe atraer tráfico con la vía directa saturada")
+ var cross: Dictionary = {"id":3,"path":[[2,-1],[2,0],[2,1]],"type":0,"length":2.0,"work":0.0,"condition":100.0,"speed_limit":25.0,"trips":0}
+ var queued_route: Array = RoadNetwork.route([direct,alternative,cross],Vector2i(0,0),Vector2i(4,0),-1,{},-1,-1,{"2,0":10.0})
+ assert(int(queued_route[0].road)==2, "La demora del cruce debe influir en la ruta")
  var disconnected := GameState.new(43)
  disconnected.cities = [{"name":"A","x":0,"y":0,"population":5000,"completed":{}},{"name":"B","x":4,"y":0,"population":5000,"completed":{}}]
  disconnected._generate_demand(10.0)

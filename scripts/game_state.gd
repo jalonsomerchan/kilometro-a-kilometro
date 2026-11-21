@@ -25,6 +25,7 @@ var forecasts: Array = []
 var next_event: float = 240.0
 var latest_notice: String = ""
 var notice_road: int = -1
+var notice_point: Array = []
 var demand_credit: Dictionary = {}
 var potential_demand: float = 0.0
 var started_trips: int = 0
@@ -38,6 +39,12 @@ var today_penalties: float = 0.0
 var yesterday_penalties: float = 0.0
 var late_trips: int = 0
 var junction_busy_until: Dictionary = {}
+var roundabouts: Dictionary = {}
+var junction_queue_counts: Dictionary = {}
+var junction_delays: Dictionary = {}
+var junction_queue_serial: int = 0
+var junction_fines: float = 0.0
+var junction_warned: Dictionary = {}
 var reroute_budget: int = 0
 var income_day_start: float = 0.0
 var expenses_day_start: float = 0.0
@@ -111,6 +118,15 @@ func step(dt: float) -> void:
   route_refresh_clock = 0.0
   route_cache.clear()
  _charge_congestion(dt)
+ for junction_key: String in roundabouts:
+  var roundabout: Dictionary = roundabouts[junction_key]
+  if float(roundabout.get("work",0.0)) > 0.0:
+   roundabout.work = maxf(0.0,float(roundabout.work)-dt)
+   if float(roundabout.work) == 0.0:
+    route_cache.clear()
+    notice_point = []
+    latest_notice = "Rotonda terminada en (%d,%d)." % [roundabout.x,roundabout.y]
+    notice_road = int(roundabout.get("road_id",-1))
  _update_contract()
  GameEvents.advance(self,dt)
  if completed > 0 and elapsed >= next_event and not roads.is_empty():
@@ -152,6 +168,7 @@ func step(dt: float) -> void:
      wear_factor *= 0.35
     else:
      road.maintenance = false
+     notice_point = []
      latest_notice = "Mantenimiento suspendido en el tramo %d: fondos insuficientes." % int(road.id)
      notice_road = int(road.id)
    road.condition = maxf(0.0, float(road.condition) - dt * 0.0007 * wear_factor)
@@ -159,6 +176,7 @@ func step(dt: float) -> void:
     var old_condition: float = float(bridge.condition)
     bridge.condition = maxf(0.0,old_condition-dt*0.001*wear_factor)
     if old_condition >= 10.0 and float(bridge.condition) < 10.0:
+     notice_point = []
      latest_notice = "Puente del tramo %d cerrado por deterioro." % int(road.id)
      notice_road = int(road.id)
      route_cache.clear()
@@ -199,15 +217,26 @@ func step(dt: float) -> void:
 func _update_traffic() -> void:
  traffic_counts.clear()
  traffic_load.clear()
+ junction_queue_counts.clear()
+ junction_delays.clear()
  for vehicle: Dictionary in vehicles:
   var road_id: int = -1
-  if vehicle.has("route") and int(vehicle.route_index) < vehicle.route.size():
+  if vehicle.has("signal_pending"):
+   var pending: Dictionary = vehicle.signal_pending
+   var junction_key: String = str(pending.key)
+   junction_queue_counts[junction_key] = int(junction_queue_counts.get(junction_key,0)) + 1
+   road_id = int(pending.get("previous_road",-1))
+  elif vehicle.has("route") and int(vehicle.route_index) < vehicle.route.size():
    road_id = int(vehicle.route[int(vehicle.route_index)].road)
   elif vehicle.has("road"): road_id = int(vehicle.road)
   if road_id >= 0: traffic_counts[road_id] = int(traffic_counts.get(road_id,0)) + 1
  for road: Dictionary in roads:
   var capacity: float = road_capacity(road)
   traffic_load[int(road.id)] = float(traffic_counts.get(int(road.id),0)) / capacity
+ for key: String in junction_queue_counts:
+  junction_delays[key] = float(junction_queue_counts[key])*_junction_headway(key)
+ for key: Variant in junction_warned.keys():
+  if int(junction_queue_counts.get(key,0)) < 2: junction_warned.erase(key)
 
 func road_capacity(road: Dictionary) -> float:
  var length: float = maxf(1.0,float(road.get("length",float(road.path.size()-1))))
@@ -228,10 +257,27 @@ func _charge_congestion(dt: float) -> void:
    charge += maxf(0.0,load-Balance.CONGESTION_FINE_THRESHOLD)*Balance.CONGESTION_FINE_PER_SECOND*dt
    if load > Balance.CONGESTION_FINE_THRESHOLD and not bool(road.get("jam_warning",false)):
     road.jam_warning = true
+    notice_point = []
     latest_notice = "Atasco en el tramo %d: %.0f%% de ocupación. Genera penalizaciones." % [int(road.id),load*100.0]
     notice_road = int(road.id)
    elif load < Balance.CONGESTION_WARNING:
     road.jam_warning = false
+ var queue_charge: float = 0.0
+ for key: String in junction_queue_counts:
+  var count: int = int(junction_queue_counts[key])
+  queue_charge += maxf(0.0,float(count)-2.0)*Balance.JUNCTION_QUEUE_FINE*dt
+  if count >= 4 and not junction_warned.has(key):
+   junction_warned[key] = true
+   notice_point = []
+   latest_notice = "Cola en el cruce (%s): %d vehículos esperando." % [key,count]
+   var pieces: PackedStringArray = key.split(",")
+   notice_road = -1
+   if pieces.size() == 2:
+    notice_point = [int(pieces[0]),int(pieces[1])]
+    for road: Dictionary in roads:
+     if road.path.has([int(pieces[0]),int(pieces[1])]): notice_road = int(road.id); break
+ junction_fines += queue_charge
+ charge += queue_charge
  if charge > 0.0:
   money -= charge
   expenses += charge
@@ -272,7 +318,7 @@ func _generate_demand(dt: float) -> void:
 
 func _start_trip(origin: int, destination: int) -> bool:
  var key: String = "%d:%d" % [origin,destination]
- if not route_cache.has(key): route_cache[key] = RoadNetwork.route(roads,_city_position(origin),_city_position(destination),-1,traffic_load)
+ if not route_cache.has(key): route_cache[key] = RoadNetwork.route(roads,_city_position(origin),_city_position(destination),-1,traffic_load,-1,-1,junction_delays,roundabouts)
  var route: Array = route_cache[key]
  if route.is_empty(): return false
  vehicles.append({"route":route.duplicate(true),"route_index":0,"segment_progress":0.0,"origin":origin,"destination":destination,"direct_distance":_city_position(origin).distance_to(_city_position(destination)),"travel_time":0.0,"last_reroute":elapsed,"toll_due":0.0,"toll_road":-1})
@@ -337,12 +383,14 @@ func _pay_loan_installment() -> void:
  var installment: float = minf(loan_remaining,Balance.LOAN_DAILY_PAYMENT)
  if money < installment:
   loan_overdue += 1
+  notice_point = []
   latest_notice = "Cuota del préstamo pendiente: %.0f €." % installment
   notice_road = -1
   return
  money -= installment
  expenses += installment
  loan_remaining -= installment
+ notice_point = []
  latest_notice = "Cuota del préstamo pagada: %.0f €. Deuda restante: %.0f €." % [installment,loan_remaining]
  notice_road = -1
 
@@ -368,12 +416,96 @@ func _update_contract() -> void:
   contract.status = "completed"
   contract_history.append("%d:%d" % [mini(origin,destination),maxi(origin,destination)])
   contracts_completed += 1
+  notice_point = []
   latest_notice = "Contrato completado: +%.0f €." % float(contract.reward)
   notice_road = -1
  elif elapsed >= float(contract.deadline):
   contract.status = "expired"
+  notice_point = []
   latest_notice = "El plazo del contrato de conexión ha terminado."
   notice_road = -1
+
+func _junction_key(point: Vector2i) -> String:
+ return "%d,%d" % [point.x,point.y]
+
+func _junction_headway(key: String) -> float:
+ if roundabouts.has(key) and float(roundabouts[key].get("work",0.0)) <= 0.0:
+  return Balance.JUNCTION_ROUNDABOUT_HEADWAY
+ var pieces: PackedStringArray = key.split(",")
+ if pieces.size() != 2: return Balance.JUNCTION_UNCONTROLLED_HEADWAY
+ var point: Array = [int(pieces[0]),int(pieces[1])]
+ for road: Dictionary in roads:
+  var index: int = road.path.find(point)
+  if index < 0 or RoadNetwork._level(road,index) != 0: continue
+  for signal_data: Dictionary in road.get("signals",[]):
+   if int(signal_data.index) == index: return Balance.JUNCTION_CONTROLLED_HEADWAY
+ return Balance.JUNCTION_UNCONTROLLED_HEADWAY
+
+func _junction_turn(vehicle: Dictionary) -> bool:
+ var pending: Dictionary = vehicle.signal_pending
+ var key: String = str(pending.key)
+ if elapsed < float(pending.ready_at) or elapsed < float(junction_busy_until.get(key,0.0)): return false
+ # Give unsignalled priority traffic time to enter, but cap the wait to prevent starvation.
+ if pending.get("signal_type","none") in ["yield","stop"] and elapsed-float(pending.get("queued_at",elapsed)) < 3.0:
+  if _priority_approaching(key,vehicle): return false
+ var my_time: float = float(pending.get("queued_at",pending.ready_at))
+ var my_order: int = int(pending.get("order",0))
+ for other: Dictionary in vehicles:
+  if is_same(other,vehicle) or not other.has("signal_pending"): continue
+  var waiting: Dictionary = other.signal_pending
+  if str(waiting.key) != key or int(waiting.get("level",0)) != int(pending.get("level",0)): continue
+  if elapsed < float(waiting.ready_at): continue
+  var other_time: float = float(waiting.get("queued_at",waiting.ready_at))
+  var other_order: int = int(waiting.get("order",0))
+  if other_time < my_time or (is_equal_approx(other_time,my_time) and other_order < my_order): return false
+ return true
+
+func can_build_roundabout(point: Vector2i) -> String:
+ var p: Array = [point.x,point.y]
+ if roundabouts.has(_junction_key(point)): return "Ya existe una rotonda aquí."
+ if world.terrain(point) in ["agua","roca"]: return "La rotonda necesita terreno firme."
+ for city: Dictionary in cities:
+  if int(city.x)==point.x and int(city.y)==point.y: return "No se puede construir sobre una ciudad."
+ var compatible: int = 0
+ var arms: Dictionary = {}
+ for road: Dictionary in roads:
+  var index: int = road.path.find(p)
+  if index < 0: continue
+  if RoadNetwork._level(road,index) != 0 or int(road.type) > 3: return "Hay una vía elevada o incompatible en este punto."
+  if RoadNetwork.road_closed(road): return "Espera a que las carreteras del cruce estén abiertas."
+  compatible += 1
+  for next_index: int in [index-1,index+1]:
+   if next_index < 0 or next_index >= road.path.size(): continue
+   var other: Array = road.path[next_index]
+   var direction := Vector2i(signi(int(other[0])-point.x),signi(int(other[1])-point.y))
+   if direction != Vector2i.ZERO: arms[direction] = true
+ if compatible < 2 or arms.size() < 3: return "Selecciona un cruce a nivel con al menos tres accesos."
+ if money < Balance.ROUNDABOUT_COST: return "Fondos insuficientes."
+ return ""
+
+func build_roundabout(point: Vector2i) -> bool:
+ if not can_build_roundabout(point).is_empty(): return false
+ var road_id: int = -1
+ for road: Dictionary in roads:
+  if road.path.has([point.x,point.y]): road_id = int(road.id); break
+ money -= Balance.ROUNDABOUT_COST
+ expenses += Balance.ROUNDABOUT_COST
+ roundabouts[_junction_key(point)] = {"x":point.x,"y":point.y,"work":Balance.ROUNDABOUT_WORK_SECONDS,"road_id":road_id}
+ route_cache.clear()
+ return true
+
+func remove_road(road: Dictionary) -> void:
+ roads.erase(road)
+ route_cache.clear()
+ var obsolete: Array = []
+ for key: String in roundabouts:
+  var point: Array = [int(roundabouts[key].x),int(roundabouts[key].y)]
+  var roads_at_level: int = 0
+  for other: Dictionary in roads:
+   var index: int = other.path.find(point)
+   if index >= 0 and int(other.type) <= 3 and RoadNetwork._level(other,index) == 0: roads_at_level += 1
+  if roads_at_level < 2: obsolete.append(key)
+ for key: String in obsolete: roundabouts.erase(key)
 
 func _priority_approaching(key: String, waiting_vehicle: Dictionary) -> bool:
  var parts: PackedStringArray = key.split(",")
@@ -400,28 +532,36 @@ func _priority_approaching(key: String, waiting_vehicle: Dictionary) -> bool:
 func _has_junction(road: Dictionary, index: int) -> bool:
  if int(road.type) > 3: return false
  var point: Array = road.path[index]
+ var arms: Dictionary = {}
+ var matches: int = 0
  for other: Dictionary in roads:
-  if int(other.id) == int(road.id) or int(other.type) > 3 or RoadNetwork.road_closed(other): continue
+  if int(other.type) > 3 or RoadNetwork.road_closed(other): continue
   var other_index: int = other.path.find(point)
-  if other_index >= 0 and RoadNetwork._level(road,index) == RoadNetwork._level(other,other_index): return true
- return false
+  if other_index < 0 or RoadNetwork._level(road,index) != RoadNetwork._level(other,other_index): continue
+  matches += 1
+  for neighbor: int in [other_index-1,other_index+1]:
+   if neighbor < 0 or neighbor >= other.path.size(): continue
+   var endpoint: Array = other.path[neighbor]
+   var direction := Vector2i(signi(int(endpoint[0])-int(point[0])),signi(int(endpoint[1])-int(point[1])))
+   if direction != Vector2i.ZERO: arms[direction] = true
+ return matches >= 2 and arms.size() >= 3
 
 func _advance_route_vehicle(vehicle: Dictionary, dt: float) -> bool:
  if vehicle.has("signal_pending"):
   var waiting: Dictionary = vehicle.signal_pending
   var key: String = str(waiting.key)
-  if elapsed < float(waiting.ready_at) or elapsed < float(junction_busy_until.get(key,0.0)) or _priority_approaching(key,vehicle): return false
+  if not _junction_turn(vehicle): return false
   var next_segment: Dictionary = vehicle.route[int(vehicle.route_index)]
   var approaching_road: Dictionary = _road_by_id(int(next_segment.road))
   if approaching_road.is_empty() or (int(next_segment.road) != int(waiting.get("previous_road",-1)) and (float(approaching_road.work)>0.0 or int(approaching_road.get("event_closures",0))>0 or RoadNetwork.road_closed(approaching_road))):
    var pieces: PackedStringArray = key.split(",")
-   var replacement: Array = RoadNetwork.route(roads,Vector2i(int(pieces[0]),int(pieces[1])),_city_position(int(vehicle.destination)),-1,traffic_load,int(waiting.get("previous_road",-1)),int(waiting.get("previous_index",-1)))
+   var replacement: Array = RoadNetwork.route(roads,Vector2i(int(pieces[0]),int(pieces[1])),_city_position(int(vehicle.destination)),-1,traffic_load,int(waiting.get("previous_road",-1)),int(waiting.get("previous_index",-1)),junction_delays,roundabouts)
    if replacement.is_empty(): interrupted += 1; return true
    vehicle.route = replacement
    vehicle.route_index = 0
    vehicle.segment_progress = 0.0
   _enter_toll_road(vehicle,int(vehicle.route[int(vehicle.route_index)].road))
-  junction_busy_until[key] = elapsed + 0.75
+  junction_busy_until[key] = elapsed + _junction_headway(key)
   vehicle.erase("signal_pending")
  var route: Array = vehicle.route
  var index: int = int(vehicle.route_index)
@@ -468,7 +608,7 @@ func _advance_route_vehicle(vehicle: Dictionary, dt: float) -> bool:
    reroute_budget -= 1
    vehicle.last_reroute = elapsed
    var at := Vector2i(int(b[0]),int(b[1]))
-   var updated: Array = RoadNetwork.route(roads,at,_city_position(int(vehicle.destination)),-1,traffic_load,int(road.id),int(segment.to_index))
+   var updated: Array = RoadNetwork.route(roads,at,_city_position(int(vehicle.destination)),-1,traffic_load,int(road.id),int(segment.to_index),junction_delays,roundabouts)
    if not updated.is_empty():
     route = updated
     vehicle.route = updated
@@ -479,7 +619,7 @@ func _advance_route_vehicle(vehicle: Dictionary, dt: float) -> bool:
   var next_road: Dictionary = _road_by_id(int(next.road))
   if next_road.is_empty() or (int(next.road) != int(road.id) and (RoadNetwork.road_closed(next_road))):
    var position := Vector2i(int(b[0]),int(b[1]))
-   var replacement: Array = RoadNetwork.route(roads,position,_city_position(int(vehicle.destination)),-1,traffic_load,int(road.id),int(segment.to_index))
+   var replacement: Array = RoadNetwork.route(roads,position,_city_position(int(vehicle.destination)),-1,traffic_load,int(road.id),int(segment.to_index),junction_delays,roundabouts)
    if replacement.is_empty(): interrupted += 1; return true
    vehicle.route = replacement
    vehicle.route_index = 0
@@ -487,12 +627,19 @@ func _advance_route_vehicle(vehicle: Dictionary, dt: float) -> bool:
    return false
   var arrival_index: int = int(segment.to_index)
   var direction: int = 1 if int(segment.to_index) > int(segment.from_index) else -1
+  var signal_type: String = "none"
   for signal_data: Dictionary in road.get("signals",[]):
-   if int(signal_data.index) != arrival_index or int(signal_data.direction) != direction: continue
-   var signal_type: String = str(signal_data.type)
+   if int(signal_data.index) == arrival_index and int(signal_data.direction) == direction:
+    signal_type = str(signal_data.type)
+    break
+  var at_junction: bool = _has_junction(road,arrival_index)
+  var coordinate: String = "%d,%d" % [int(b[0]),int(b[1])]
+  if roundabouts.has(coordinate) and float(roundabouts[coordinate].get("work",0.0)) <= 0.0: signal_type = "none"
+  if at_junction or signal_type != "none":
    var wait: float = 1.5 if signal_type == "stop" else 0.0
-   var coordinate: String = "%d,%d" % [int(b[0]),int(b[1])]
-   vehicle.signal_pending = {"key":coordinate,"ready_at":elapsed+wait,"level":RoadNetwork._level(road,arrival_index),"previous_road":int(road.id),"previous_index":arrival_index}
+   if at_junction and _junction_headway(coordinate) == Balance.JUNCTION_UNCONTROLLED_HEADWAY: wait = maxf(wait,0.5)
+   junction_queue_serial += 1
+   vehicle.signal_pending = {"key":coordinate,"ready_at":elapsed+wait,"queued_at":elapsed,"order":junction_queue_serial,"level":RoadNetwork._level(road,arrival_index),"previous_road":int(road.id),"previous_index":arrival_index,"approach_index":int(segment.from_index),"signal_type":signal_type}
    vehicle.segment_progress = 0.0
    return false
   if int(next.road) != int(road.id): _enter_toll_road(vehicle,int(next.road))
@@ -543,13 +690,16 @@ func _process_scheduled_work(road: Dictionary) -> void:
  for pair: String in current:
   if not previous.has(pair):
    job.status = "blocked"
+   notice_point = []
    latest_notice = "Obra del tramo %d aplazada: el aislamiento ha empeorado. Revisa el inspector." % int(road.id)
    notice_road = int(road.id)
    return
  if not start_work(road,job):
   job.status = "blocked"
+  notice_point = []
   latest_notice = "Obra del tramo %d aplazada por falta de fondos o por otra obra." % int(road.id)
  else:
+  notice_point = []
   latest_notice = "Ha comenzado la obra programada del tramo %d." % int(road.id)
  notice_road = int(road.id)
 
@@ -564,7 +714,7 @@ func _road_by_id(id: int) -> Dictionary:
  return {}
 
 func data() -> Dictionary:
- return {"version":1,"generator_version":1,"name":game_name,"seed":seed_value,"guided":guided,"money":money,"elapsed":elapsed,"completed":completed,"income":income,"expenses":expenses,"cities":cities,"chunks":chunks,"roads":roads,"vehicles":vehicles,"next_id":next_id,"spawn_clock":spawn_clock,"cursor_x":cursor_x,"cursor_y":cursor_y,"interrupted":interrupted,"events":events,"forecasts":forecasts,"next_event":next_event,"latest_notice":latest_notice,"notice_road":notice_road,"demand_credit":demand_credit,"potential_demand":potential_demand,"started_trips":started_trips,"unmet_demand":unmet_demand,"congestion_fines":congestion_fines,"delay_fines":delay_fines,"today_penalties":today_penalties,"yesterday_penalties":yesterday_penalties,"late_trips":late_trips,"route_refresh_clock":route_refresh_clock,"junction_busy_until":junction_busy_until,"income_day_start":income_day_start,"expenses_day_start":expenses_day_start,"yesterday_income":yesterday_income,"yesterday_expenses":yesterday_expenses,"loan_taken":loan_taken,"loan_remaining":loan_remaining,"loan_overdue":loan_overdue,"contract":contract,"contracts_completed":contracts_completed,"toll_income":toll_income,"contract_income":contract_income,"contract_history":contract_history,"next_contract_check":next_contract_check,"saved_at":Time.get_datetime_string_from_system()}
+ return {"version":1,"generator_version":1,"name":game_name,"seed":seed_value,"guided":guided,"money":money,"elapsed":elapsed,"completed":completed,"income":income,"expenses":expenses,"cities":cities,"chunks":chunks,"roads":roads,"vehicles":vehicles,"next_id":next_id,"spawn_clock":spawn_clock,"cursor_x":cursor_x,"cursor_y":cursor_y,"interrupted":interrupted,"events":events,"forecasts":forecasts,"next_event":next_event,"latest_notice":latest_notice,"notice_road":notice_road,"notice_point":notice_point,"demand_credit":demand_credit,"potential_demand":potential_demand,"started_trips":started_trips,"unmet_demand":unmet_demand,"congestion_fines":congestion_fines,"delay_fines":delay_fines,"today_penalties":today_penalties,"yesterday_penalties":yesterday_penalties,"late_trips":late_trips,"route_refresh_clock":route_refresh_clock,"junction_busy_until":junction_busy_until,"roundabouts":roundabouts,"junction_queue_serial":junction_queue_serial,"junction_fines":junction_fines,"income_day_start":income_day_start,"expenses_day_start":expenses_day_start,"yesterday_income":yesterday_income,"yesterday_expenses":yesterday_expenses,"loan_taken":loan_taken,"loan_remaining":loan_remaining,"loan_overdue":loan_overdue,"contract":contract,"contracts_completed":contracts_completed,"toll_income":toll_income,"contract_income":contract_income,"contract_history":contract_history,"next_contract_check":next_contract_check,"saved_at":Time.get_datetime_string_from_system()}
 
 static func from_data(d: Dictionary) -> GameState:
  var s := GameState.new(int(d.seed))
@@ -591,6 +741,7 @@ static func from_data(d: Dictionary) -> GameState:
  s.next_event = float(d.get("next_event",240.0))
  s.latest_notice = str(d.get("latest_notice",""))
  s.notice_road = int(d.get("notice_road",-1))
+ s.notice_point = d.get("notice_point",[])
  s.demand_credit = d.get("demand_credit",{})
  s.potential_demand = float(d.get("potential_demand",0.0))
  s.started_trips = int(d.get("started_trips",0))
@@ -602,6 +753,9 @@ static func from_data(d: Dictionary) -> GameState:
  s.late_trips = int(d.get("late_trips",0))
  s.route_refresh_clock = float(d.get("route_refresh_clock",0.0))
  s.junction_busy_until = d.get("junction_busy_until",{})
+ s.roundabouts = d.get("roundabouts",{})
+ s.junction_queue_serial = int(d.get("junction_queue_serial",0))
+ s.junction_fines = float(d.get("junction_fines",0.0))
  s.income_day_start = float(d.get("income_day_start",s.income))
  s.expenses_day_start = float(d.get("expenses_day_start",s.expenses))
  s.yesterday_income = float(d.get("yesterday_income",0.0))

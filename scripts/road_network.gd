@@ -3,7 +3,7 @@ extends RefCounted
 
 # Each road owns its own nodes. Transfers at a shared coordinate are explicit,
 # so an elevated road cannot accidentally connect to the road underneath.
-static func route(roads: Array, origin: Vector2i, destination: Vector2i, excluded_id: int = -1, traffic: Dictionary = {}, source_road_id: int = -1, source_index: int = -1) -> Array:
+static func route(roads: Array, origin: Vector2i, destination: Vector2i, excluded_id: int = -1, traffic: Dictionary = {}, source_road_id: int = -1, source_index: int = -1, junction_delays: Dictionary = {}, roundabouts: Dictionary = {}) -> Array:
  var edges: Dictionary = {}
  var positions: Dictionary = {}
  var start_nodes: Array = []
@@ -37,8 +37,8 @@ static func route(roads: Array, origin: Vector2i, destination: Vector2i, exclude
    var congestion: float = maxf(0.16, 1.0 / (1.0 + 2.0 * pow(maxf(0.0,load-0.65),2.0)))
    var weather: float = 0.55 if int(road.get("snow_count",0)) > 0 else 1.0
    var weight: float = length * 25.0 / (speed * congestion * weather)
-   edges[a].append({"to":b,"weight":weight+_signal_delay(road,i+1,1),"road":int(road.id),"from_index":i,"to_index":i+1})
-   edges[b].append({"to":a,"weight":weight+_signal_delay(road,i,-1),"road":int(road.id),"from_index":i+1,"to_index":i})
+   edges[a].append({"to":b,"weight":weight+_signal_delay(road,i+1,1,roundabouts)+float(junction_delays.get("%d,%d" % [path[i+1][0],path[i+1][1]],0.0)),"road":int(road.id),"from_index":i,"to_index":i+1})
+   edges[b].append({"to":a,"weight":weight+_signal_delay(road,i,-1,roundabouts)+float(junction_delays.get("%d,%d" % [path[i][0],path[i][1]],0.0)),"road":int(road.id),"from_index":i+1,"to_index":i})
  for coord: Vector2i in positions:
   var entries: Array = positions[coord]
   for i: int in range(entries.size()):
@@ -90,7 +90,10 @@ static func road_closed(road: Dictionary) -> bool:
   if float(bridge.condition) < 10.0: return true
  return false
 
-static func _signal_delay(road: Dictionary, index: int, direction: int) -> float:
+static func _signal_delay(road: Dictionary, index: int, direction: int, roundabouts: Dictionary = {}) -> float:
+ var point: Array = road.path[index]
+ var key: String = "%d,%d" % [point[0],point[1]]
+ if roundabouts.has(key) and float(roundabouts[key].get("work",0.0)) <= 0.0: return 0.0
  for signal_data: Dictionary in road.get("signals",[]):
   if int(signal_data.index) == index and int(signal_data.direction) == direction:
    return 1.5 if signal_data.type == "stop" else 0.0

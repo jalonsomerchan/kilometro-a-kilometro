@@ -26,6 +26,9 @@ func run_test() -> void:
  assert(InputMap.event_is_action(dismiss,"notice_dismiss"))
  game._unhandled_input(dismiss)
  assert(game.notice_time == 0.0 and game.state.events.has(event))
+ game._notify("Cola en el cruce",7,[12,20])
+ game._unhandled_input(go)
+ assert(game.cursor == Vector2i(12,20), "Debe saltar al cruce, no al centro del tramo")
  game._notify("Cuota pagada")
  var old: Vector2i = game.cursor
  game._unhandled_input(go)

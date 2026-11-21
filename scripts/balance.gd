@@ -39,3 +39,11 @@ const ROAD_UNLOCK_RELIABILITY: Array[float] = [0.0,0.0,0.0,0.65,0.70,0.75,0.80]
 const LOAN_PRINCIPAL: float = 3000.0
 const LOAN_TOTAL: float = 3300.0
 const LOAN_DAILY_PAYMENT: float = 550.0
+
+# Junction capacity: seconds per vehicle, before and after improvements.
+const JUNCTION_UNCONTROLLED_HEADWAY: float = 1.75
+const JUNCTION_CONTROLLED_HEADWAY: float = 0.75
+const JUNCTION_ROUNDABOUT_HEADWAY: float = 0.45
+const JUNCTION_QUEUE_FINE: float = 0.6
+const ROUNDABOUT_COST: float = 1400.0
+const ROUNDABOUT_WORK_SECONDS: float = 12.0
