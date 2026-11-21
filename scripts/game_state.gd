@@ -28,6 +28,7 @@ var latest_notice: String = ""
 var notice_road: int = -1
 var notice_point: Array = []
 var demand_credit: Dictionary = {}
+var demand_origin_offset: int = 0
 var potential_demand: float = 0.0
 var started_trips: int = 0
 var unmet_demand: int = 0
@@ -66,9 +67,13 @@ func _init(seed_number: int = 1) -> void:
  world = WorldGenerator.new(seed_value)
 
 func discover(p: Vector2i) -> void:
- var chunk := Vector2i(floori(float(p.x) / 32.0), floori(float(p.y) / 32.0))
- for y: int in range(chunk.y - 1, chunk.y + 2):
-  for x: int in range(chunk.x - 1, chunk.x + 2):
+ discover_rect(p - Vector2i(32,32), p + Vector2i(32,32))
+
+func discover_rect(from: Vector2i, to: Vector2i) -> void:
+ var first := Vector2i(floori(float(from.x) / 32.0), floori(float(from.y) / 32.0))
+ var last := Vector2i(floori(float(to.x) / 32.0), floori(float(to.y) / 32.0))
+ for y: int in range(first.y, last.y + 1):
+  for x: int in range(first.x, last.x + 1):
    var key: String = "%d,%d" % [x,y]
    if chunks.has(key): continue
    chunks.append(key)
@@ -224,7 +229,7 @@ func step(dt: float) -> void:
   for other: Dictionary in vehicles:
    if other.has("road") and other.road == vehicle.road: occupancy += 1
   var congestion: float = maxf(0.22, 1.0 - maxf(0.0, float(occupancy) - capacity) / (capacity * 2.0))
-  var speed: float = float(road.speed_limit) / 25.0 * congestion * maxf(0.3, float(road.condition) / 100.0)
+  var speed: float = float(road.speed_limit) / 25.0 * congestion * maxf(0.3, float(road.condition) / 100.0) * RoadGeometry.average_speed_factor(road.path,int(road.get("type",0)))
   vehicle.progress = float(vehicle.progress) + dt * speed / maxf(1.0, float(road.length))
   if float(vehicle.progress) >= 1.0:
    var fare: float = 110.0 + float(vehicle.direct_distance) * 8.0
@@ -271,7 +276,12 @@ func road_capacity(road: Dictionary) -> float:
 func effective_speed(road: Dictionary) -> float:
  var load: float = float(traffic_load.get(int(road.id),0.0))
  var congestion: float = maxf(0.16,1.0/(1.0+2.0*pow(maxf(0.0,load-0.65),2.0)))
- return float(road.speed_limit) * congestion * maxf(0.3,float(road.condition)/100.0) * (0.55 if int(road.get("snow_count",0))>0 else 1.0)
+ return float(road.speed_limit) * congestion * maxf(0.3,float(road.condition)/100.0) * (0.55 if int(road.get("snow_count",0))>0 else 1.0) * RoadGeometry.average_speed_factor(road.path,int(road.get("type",0)))
+
+func segment_speed(road: Dictionary, segment_index: int) -> float:
+ var load: float = float(traffic_load.get(int(road.id),0.0))
+ var congestion: float = maxf(0.16,1.0/(1.0+2.0*pow(maxf(0.0,load-0.65),2.0)))
+ return float(road.speed_limit) * congestion * maxf(0.3,float(road.condition)/100.0) * (0.55 if int(road.get("snow_count",0))>0 else 1.0) * RoadGeometry.segment_speed_factor(road.path,segment_index,int(road.get("type",0)))
 
 func _charge_congestion(dt: float) -> void:
  var charge: float = 0.0
@@ -309,12 +319,15 @@ func _charge_congestion(dt: float) -> void:
   today_penalties += charge
 
 func _generate_demand(dt: float) -> void:
- var count: int = mini(cities.size(),Balance.DEMAND_MAX_CITIES)
+ var count: int = cities.size()
  if count < 2: return
+ var batch: int = mini(count, Balance.DEMAND_MAX_CITIES)
+ var demand_dt: float = dt * float(count) / float(batch)
  var budget: int = 12
  var phase: float = fposmod(elapsed,Balance.DAY_SECONDS)/Balance.DAY_SECONDS
  var multiplier: float = 0.55 if phase >= 0.75 else 1.0
- for origin: int in range(count):
+ for offset: int in range(batch):
+  var origin: int = (demand_origin_offset + offset) % count
   var candidates: Array = []
   for target: int in range(count):
    if target != origin: candidates.append(target)
@@ -327,7 +340,7 @@ func _generate_demand(dt: float) -> void:
    var event_multiplier: float = 1.0
    for event: Dictionary in events:
     if event.kind == "fair" and int(event.get("target_city",-1)) == destination: event_multiplier *= 2.0
-   var demand: float = rate*dt*event_multiplier
+   var demand: float = rate*demand_dt*event_multiplier
    potential_demand += demand
    var key: String = "%d:%d" % [origin,destination]
    var credit: float = float(demand_credit.get(key,0.0))+demand
@@ -339,14 +352,16 @@ func _generate_demand(dt: float) -> void:
     budget -= 1
     if not _start_trip(origin,destination): unmet_demand += 1
    demand_credit[key] = credit
+ demand_origin_offset = (demand_origin_offset + batch) % count
 
 func _start_trip(origin: int, destination: int) -> bool:
  var key: String = "%d:%d" % [origin,destination]
- if not route_cache.has(key): route_cache[key] = RoadNetwork.route(roads,_city_position(origin),_city_position(destination),-1,traffic_load,-1,-1,junction_delays,roundabouts)
+ if not route_cache.has(key): route_cache[key] = RoadNetwork.route(roads,_city_position(origin),_city_position(destination),-1,traffic_load,-1,-1,junction_delays,roundabouts,Balance.TOLL_VALUE_PER_SIM_SECOND)
  var route: Array = route_cache[key]
  if route.is_empty(): return false
  vehicles.append({"route":route.duplicate(true),"route_index":0,"segment_progress":0.0,"origin":origin,"destination":destination,"direct_distance":_city_position(origin).distance_to(_city_position(destination)),"travel_time":0.0,"last_reroute":elapsed,"toll_due":0.0,"toll_road":-1})
  _enter_toll_road(vehicles[-1],int(route[0].road))
+ vehicles[-1].contract_tracked = _track_contract_start(origin,destination)
  started_trips += 1
  return true
 
@@ -419,35 +434,97 @@ func _pay_loan_installment() -> void:
  notice_road = -1
 
 func offer_contract(origin: int, destination: int) -> void:
- contract = {"origin":origin,"destination":destination,"status":"offered","reward":ceil(1600.0+_city_position(origin).distance_to(_city_position(destination))*100.0),"duration":Balance.DAY_SECONDS*4.0}
+ offer_contract_type(origin,destination,"connection")
+
+func offer_contract_type(origin: int, destination: int, contract_type: String) -> void:
+ var distance: float = _city_position(origin).distance_to(_city_position(destination))
+ var reward: float = ceil(1600.0+distance*100.0)
+ var new_contract: Dictionary = {"type":contract_type,"origin":origin,"destination":destination,"status":"offered","reward":reward,"duration":Balance.DAY_SECONDS*4.0,"deadline_duration":Balance.DAY_SECONDS*4.0}
+ if contract_type == "duration":
+  new_contract.reward = ceil(2200.0+distance*110.0)
+  new_contract.duration = Balance.DAY_SECONDS*2.0
+  new_contract.deadline_duration = Balance.DAY_SECONDS*4.0
+  new_contract.progress_seconds = 0.0
+ elif contract_type == "reliability":
+  new_contract.reward = ceil(3000.0+distance*140.0)
+  new_contract.target_trips = 5
+  new_contract.target_on_time = 4
+ contract = new_contract
 
 func accept_contract() -> void:
  if contract.get("status","") != "offered": return
  contract.status = "active"
- contract.deadline = elapsed+float(contract.duration)
+ contract.deadline = elapsed+float(contract.get("deadline_duration",contract.duration))
+ contract.last_check = elapsed
+ next_contract_check = elapsed
+ if contract.get("type","") == "reliability":
+  contract.started = 0
+  contract.finished = 0
+  contract.on_time = 0
 
 func _update_contract() -> void:
  if contract.get("status","") != "active": return
  if elapsed < next_contract_check and elapsed < float(contract.deadline): return
- next_contract_check = elapsed + 2.0
+ var check_delta: float = clampf(elapsed-float(contract.get("last_check",elapsed)),0.0,2.0)
+ contract.last_check = elapsed
+ next_contract_check = elapsed+2.0
  var origin: int = int(contract.origin)
  var destination: int = int(contract.destination)
  if origin >= cities.size() or destination >= cities.size(): return
- if not RoadNetwork.route(roads,_city_position(origin),_city_position(destination)).is_empty():
-  money += float(contract.reward)
-  income += float(contract.reward)
-  contract_income += float(contract.reward)
-  contract.status = "completed"
-  contract_history.append("%d:%d" % [mini(origin,destination),maxi(origin,destination)])
-  contracts_completed += 1
-  notice_point = []
-  latest_notice = "Contrato completado: +%.0f €." % float(contract.reward)
-  notice_road = -1
- elif elapsed >= float(contract.deadline):
-  contract.status = "expired"
-  notice_point = []
-  latest_notice = "El plazo del contrato de conexión ha terminado."
-  notice_road = -1
+ var connected: bool = not RoadNetwork.route(roads,_city_position(origin),_city_position(destination)).is_empty()
+ match str(contract.get("type","connection")):
+  "connection":
+   if connected: _complete_contract()
+   elif elapsed >= float(contract.deadline): _close_contract("expired","El plazo del contrato de conexión ha terminado.")
+  "duration":
+   if connected: contract.progress_seconds = float(contract.get("progress_seconds",0.0))+check_delta
+   if float(contract.get("progress_seconds",0.0)) >= float(contract.duration): _complete_contract()
+   elif elapsed >= float(contract.deadline): _close_contract("expired","El contrato terminó antes de acumular el tiempo de conexión necesario.")
+  "reliability":
+   if elapsed >= float(contract.deadline): _close_contract("expired","Venció el plazo del contrato de fiabilidad.")
+
+func _contract_history_key() -> String:
+ var origin: int = mini(int(contract.origin),int(contract.destination))
+ var destination: int = maxi(int(contract.origin),int(contract.destination))
+ var contract_type: String = str(contract.get("type","connection"))
+ return "%d:%d" % [origin,destination] if contract_type == "connection" else "%s:%d:%d" % [contract_type,origin,destination]
+
+func _complete_contract() -> void:
+ if contract.get("status","") != "active": return
+ var reward: float = float(contract.reward)
+ money += reward
+ income += reward
+ contract_income += reward
+ contract.status = "completed"
+ var history_key: String = _contract_history_key()
+ if not contract_history.has(history_key): contract_history.append(history_key)
+ contracts_completed += 1
+ notice_point = []
+ latest_notice = "Contrato completado: +%.0f €." % reward
+ notice_road = -1
+
+func _close_contract(status: String, message: String) -> void:
+ contract.status = status
+ var history_key: String = _contract_history_key()
+ if not contract_history.has(history_key): contract_history.append(history_key)
+ notice_point = []
+ latest_notice = message
+ notice_road = -1
+
+func _track_contract_start(origin: int, destination: int) -> bool:
+ if contract.get("status","") != "active" or contract.get("type","") != "reliability": return false
+ if not ((int(contract.origin) == origin and int(contract.destination) == destination) or (int(contract.origin) == destination and int(contract.destination) == origin)): return false
+ if int(contract.get("started",0)) >= int(contract.get("target_trips",0)): return false
+ contract.started = int(contract.get("started",0))+1
+ return true
+
+func _track_contract_finish(vehicle: Dictionary, on_time: bool) -> void:
+ if not bool(vehicle.get("contract_tracked",false)) or contract.get("status","") != "active": return
+ contract.finished = int(contract.get("finished",0))+1
+ if on_time: contract.on_time = int(contract.get("on_time",0))+1
+ if int(contract.finished) >= int(contract.target_trips):
+  if int(contract.get("on_time",0)) >= int(contract.target_on_time): _complete_contract()
+  else: _close_contract("failed","El contrato de fiabilidad no alcanzó los viajes puntuales necesarios.")
 
 func _junction_key(point: Vector2i) -> String:
  return "%d,%d" % [point.x,point.y]
@@ -587,8 +664,8 @@ func _advance_route_vehicle(vehicle: Dictionary, dt: float) -> bool:
   var approaching_road: Dictionary = _road_by_id(int(next_segment.road))
   if approaching_road.is_empty() or (int(next_segment.road) != int(waiting.get("previous_road",-1)) and (float(approaching_road.work)>0.0 or int(approaching_road.get("event_closures",0))>0 or RoadNetwork.road_closed(approaching_road))):
    var pieces: PackedStringArray = key.split(",")
-   var replacement: Array = RoadNetwork.route(roads,Vector2i(int(pieces[0]),int(pieces[1])),_city_position(int(vehicle.destination)),-1,traffic_load,int(waiting.get("previous_road",-1)),int(waiting.get("previous_index",-1)),junction_delays,roundabouts)
-   if replacement.is_empty(): interrupted += 1; return true
+   var replacement: Array = RoadNetwork.route(roads,Vector2i(int(pieces[0]),int(pieces[1])),_city_position(int(vehicle.destination)),-1,traffic_load,int(waiting.get("previous_road",-1)),int(waiting.get("previous_index",-1)),junction_delays,roundabouts,Balance.TOLL_VALUE_PER_SIM_SECOND)
+   if replacement.is_empty(): interrupted += 1; _track_contract_finish(vehicle,false); return true
    vehicle.route = replacement
    vehicle.route_index = 0
    vehicle.segment_progress = 0.0
@@ -603,8 +680,9 @@ func _advance_route_vehicle(vehicle: Dictionary, dt: float) -> bool:
  var road: Dictionary = _road_by_id(int(segment.road))
  if road.is_empty():
   interrupted += 1
+  _track_contract_finish(vehicle,false)
   return true
- var speed: float = effective_speed(road)/25.0
+ var speed: float = segment_speed(road,int(segment.from_index))/25.0
  var a: Array = road.path[int(segment.from_index)]
  var b: Array = road.path[int(segment.to_index)]
  var length: float = Vector2(float(a[0]-b[0]),float(a[1]-b[1])).length()
@@ -628,6 +706,7 @@ func _advance_route_vehicle(vehicle: Dictionary, dt: float) -> bool:
     delay_fines += fine
     today_penalties += fine
     late_trips += 1
+   _track_contract_finish(vehicle,delay <= 0.0)
    completed += 1
    road.trips = int(road.trips)+1
    var city: Dictionary = cities[int(vehicle.origin)]
@@ -640,7 +719,7 @@ func _advance_route_vehicle(vehicle: Dictionary, dt: float) -> bool:
    reroute_budget -= 1
    vehicle.last_reroute = elapsed
    var at := Vector2i(int(b[0]),int(b[1]))
-   var updated: Array = RoadNetwork.route(roads,at,_city_position(int(vehicle.destination)),-1,traffic_load,int(road.id),int(segment.to_index),junction_delays,roundabouts)
+   var updated: Array = RoadNetwork.route(roads,at,_city_position(int(vehicle.destination)),-1,traffic_load,int(road.id),int(segment.to_index),junction_delays,roundabouts,Balance.TOLL_VALUE_PER_SIM_SECOND)
    if not updated.is_empty():
     route = updated
     vehicle.route = updated
@@ -651,8 +730,8 @@ func _advance_route_vehicle(vehicle: Dictionary, dt: float) -> bool:
   var next_road: Dictionary = _road_by_id(int(next.road))
   if next_road.is_empty() or (int(next.road) != int(road.id) and (RoadNetwork.road_closed(next_road))):
    var position := Vector2i(int(b[0]),int(b[1]))
-   var replacement: Array = RoadNetwork.route(roads,position,_city_position(int(vehicle.destination)),-1,traffic_load,int(road.id),int(segment.to_index),junction_delays,roundabouts)
-   if replacement.is_empty(): interrupted += 1; return true
+   var replacement: Array = RoadNetwork.route(roads,position,_city_position(int(vehicle.destination)),-1,traffic_load,int(road.id),int(segment.to_index),junction_delays,roundabouts,Balance.TOLL_VALUE_PER_SIM_SECOND)
+   if replacement.is_empty(): interrupted += 1; _track_contract_finish(vehicle,false); return true
    vehicle.route = replacement
    vehicle.route_index = 0
    vehicle.segment_progress = 0.0

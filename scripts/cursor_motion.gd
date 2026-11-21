@@ -20,6 +20,8 @@ var stick_delivered: bool = false
 var current: Vector2i = Vector2i.ZERO
 var repeat_left: float = 0.0
 var repeat_interval: float = 0.18
+var accelerate: bool = false
+var held_time: float = 0.0
 
 func reset() -> void:
  held.clear()
@@ -31,6 +33,7 @@ func reset() -> void:
  stick_delivered = false
  current = Vector2i.ZERO
  repeat_left = 0.0
+ held_time = 0.0
 
 func set_speed(mode: String) -> void:
  match mode:
@@ -95,12 +98,14 @@ func advance(delta: float) -> Vector2i:
   return Vector2i.ZERO
  if desired != current:
   current = desired
+  held_time = 0.0
   repeat_left = START_DELAY
   return desired
+ held_time += maxf(0.0,delta)
  repeat_left -= maxf(0.0,delta)
  if repeat_left > 0.0: return Vector2i.ZERO
  # Never replay a backlog of moves after a long frame or when returning to game.
- repeat_left = repeat_interval
+ repeat_left = repeat_interval * lerpf(1.0,0.35,clampf((held_time-START_DELAY)/2.0,0.0,1.0)) if accelerate else repeat_interval
  return desired
 
 func _desired_direction() -> Vector2i:

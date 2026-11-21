@@ -66,6 +66,7 @@ func _ready() -> void:
  settings = SettingsStore.read_settings()
  grid_visible = bool(settings.grid)
  cursor_motion.set_speed(str(settings.get("cursor_speed","normal")))
+ cursor_motion.accelerate = true
  if bool(settings.fullscreen): DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
  _configure_input()
  Input.joy_connection_changed.connect(_on_joy_connection_changed)
@@ -131,7 +132,8 @@ func _input(event: InputEvent) -> void:
  if screen != "game" and waiting_binding.is_empty() and not _native_popup_open():
   var stick_axis: bool = event is InputEventJoypadMotion and event.axis in [JOY_AXIS_LEFT_X,JOY_AXIS_LEFT_Y]
   var dpad: bool = event is InputEventJoypadButton and event.button_index in [JOY_BUTTON_DPAD_UP,JOY_BUTTON_DPAD_DOWN,JOY_BUTTON_DPAD_LEFT,JOY_BUTTON_DPAD_RIGHT]
-  if stick_axis or dpad:
+  var keyboard_move: bool = event is InputEventKey and not get_viewport().gui_get_focus_owner() is LineEdit and menu_motion._is_movement(event)
+  if stick_axis or dpad or keyboard_move:
    menu_motion.handle_event(event)
    get_viewport().set_input_as_handled()
    return
@@ -177,6 +179,12 @@ func _advance_menu_navigation(delta: float) -> void:
   return
  var direction: Vector2i = menu_motion.advance(delta)
  if direction == Vector2i.ZERO: return
+ if direction.y != 0:
+  var focus: Control = get_viewport().gui_get_focus_owner()
+  if focus != null:
+   var next: Control = focus.find_next_valid_focus() if direction.y > 0 else focus.find_prev_valid_focus()
+   if next != null: next.grab_focus()
+  return
  var action: StringName = &"ui_up"
  if direction == Vector2i.DOWN: action = &"ui_down"
  elif direction == Vector2i.LEFT: action = &"ui_left"
@@ -210,8 +218,12 @@ func _process(delta: float) -> void:
   if movement != Vector2i.ZERO: _move(movement)
   var zi: float = Input.get_action_strength("zoom_in")
   var zo: float = Input.get_action_strength("zoom_out")
-  zoom = clampf(zoom * exp((zi-zo)*delta),0.55,2.2)
+  zoom = clampf(zoom * exp((zi-zo)*delta),0.35,3.5)
   _update_camera(delta)
+  var half_view: Vector2 = get_viewport_rect().size / (48.0 * zoom)
+  var view_min := Vector2i(floori(camera_cell.x-half_view.x)-1, floori(camera_cell.y-half_view.y)-1)
+  var view_max := Vector2i(ceili(camera_cell.x+half_view.x)+1, ceili(camera_cell.y+half_view.y)+1)
+  state.discover_rect(view_min, view_max)
   state.discover(cursor)
   state.cursor_x = cursor.x
   state.cursor_y = cursor.y
@@ -854,29 +866,57 @@ func _economy_menu() -> void:
  var desc: String = "Hoy: ingresos %.0f € · gastos %.0f € · saldo %+.0f €\nAyer: ingresos %.0f € · gastos %.0f € · saldo %+.0f €\nAcumulado: ingresos %.0f € · gastos %.0f €\nDe ellos: peajes %.0f € · contratos %.0f €\nCiudades conectadas: %d · fiabilidad %.0f%%\nPréstamo pendiente: %.0f € · cuotas fallidas %d" % [today_income,today_expenses,today_income-today_expenses,state.yesterday_income,state.yesterday_expenses,state.yesterday_income-state.yesterday_expenses,state.income,state.expenses,state.toll_income,state.contract_income,state.connected_cities(),state.reliability()*100.0,state.loan_remaining,state.loan_overdue]
  if not state.contract.is_empty():
   var c: Dictionary = state.contract
-  desc += "\nContrato %s: %s ↔ %s · %.0f €" % [c.status,state.cities[int(c.origin)].name,state.cities[int(c.destination)].name,c.reward]
-  if c.status == "active": desc += " · quedan %.0f s" % maxf(0.0,float(c.deadline)-state.elapsed)
+  var contract_names: Dictionary = {"connection":"conexión","duration":"duración","reliability":"fiabilidad"}
+  desc += "\nContrato de %s · %s ↔ %s · %.0f €" % [contract_names.get(str(c.get("type","connection")),"conexión"),state.cities[int(c.origin)].name,state.cities[int(c.destination)].name,c.reward]
+  if c.status == "active":
+   desc += "\nPlazo restante: %.0f s" % maxf(0.0,float(c.deadline)-state.elapsed)
+   if c.get("type","") == "duration": desc += " · conexión mantenida: %.0f / %.0f s" % [float(c.get("progress_seconds",0.0)),float(c.duration)]
+   elif c.get("type","") == "reliability": desc += " · viajes puntuales: %d / %d de %d" % [int(c.get("on_time",0)),int(c.get("target_on_time",4)),int(c.get("target_trips",5))]
+  elif c.status == "offered" and c.get("type","") == "reliability":
+   desc += "\nObjetivo: %d viajes; al menos %d deben llegar dentro del plazo." % [int(c.get("target_trips",5)),int(c.get("target_on_time",4))]
+  elif c.status == "offered" and c.get("type","") == "duration":
+   desc += "\nObjetivo: mantener la conexión durante %.0f s dentro del plazo." % float(c.duration)
  _make_panel("Economía y contratos",desc,"economy")
  if not state.loan_taken and state.money < Balance.LOAN_PRINCIPAL:
   _button("Préstamo: +%.0f €; devolver %.0f € en cuotas de %.0f €/día" % [Balance.LOAN_PRINCIPAL,Balance.LOAN_TOTAL,Balance.LOAN_DAILY_PAYMENT],func() -> void: state.take_loan(); _economy_menu())
  if state.contract.get("status","") == "offered":
   _button("Aceptar contrato",func() -> void: state.accept_contract(); _economy_menu())
  elif state.contract.get("status","") != "active":
-  _button("Buscar contrato de conexión",func() -> void: _offer_contract())
+  _button("Buscar contrato de conexión",func() -> void: _offer_contract("connection"))
+  _button("Buscar contrato de duración",func() -> void: _offer_contract("duration"))
+  _button("Buscar contrato de fiabilidad",func() -> void: _offer_contract("reliability"))
  _button("Volver",func() -> void: _game_menu())
  _focus_first()
 
-func _offer_contract() -> void:
+func _offer_contract(contract_type: String = "connection") -> void:
  var count: int = mini(state.cities.size(),12)
+ var selected_origin: int = -1
+ var selected_destination: int = -1
+ var best_demand: float = -INF
  for a: int in range(count):
   for b: int in range(a+1,count):
-   if state.contract_history.has("%d:%d" % [a,b]): continue
-   if RoadNetwork.route(state.roads,state._city_position(a),state._city_position(b)).is_empty():
-    state.offer_contract(a,b)
+   var history_key: String = "%d:%d" % [a,b] if contract_type == "connection" else "%s:%d:%d" % [contract_type,a,b]
+   if state.contract_history.has(history_key): continue
+   var connected: bool = not RoadNetwork.route(state.roads,state._city_position(a),state._city_position(b)).is_empty()
+   if (contract_type == "connection" and connected) or (contract_type != "connection" and not connected): continue
+   if contract_type == "connection":
+    state.offer_contract_type(a,b,contract_type)
     _economy_menu()
     return
+   var distance: float = state._city_position(a).distance_to(state._city_position(b))
+   var demand_score: float = sqrt(float(state.cities[a].population)*float(state.cities[b].population))/(1.0+distance/30.0)
+   if contract_type == "duration": demand_score = -distance
+   if demand_score > best_demand:
+    best_demand = demand_score
+    selected_origin = a
+    selected_destination = b
+ if selected_origin >= 0:
+  state.offer_contract_type(selected_origin,selected_destination,contract_type)
+  _economy_menu()
+  return
  _economy_menu()
- _label("No hay conexiones nuevas disponibles entre las primeras ciudades conocidas.")
+ var message: String = "No hay pares de ciudades disponibles para este contrato entre las primeras ciudades conocidas."
+ _label(message)
 
 func _traffic_summary() -> void:
  var text: String = "Demanda potencial: %.1f viajes\nIniciados: %d · completados: %d\nSin atender: %d · interrumpidos: %d\nViajes con retraso: %d\n\nPenalización acumulada por atasco: %.0f €\n  Incluidas colas en cruces: %.0f €\nPenalización acumulada por retrasos: %.0f €\nPenalizaciones de hoy: %.0f € · ayer: %.0f €\n\nAtasco: 2,5 €/s por cada 100%% de ocupación sobre la capacidad; las colas cobran 0,6 €/s por cada vehículo a partir del tercero. Retraso: 4 €/s por encima de 1,6 segundos por casilla en línea recta (mínimo 3 s; máximo 80%% del ingreso)." % [state.potential_demand,state.started_trips,state.completed,state.unmet_demand,state.interrupted,state.late_trips,state.congestion_fines,state.junction_fines,state.delay_fines,state.today_penalties,state.yesterday_penalties]
@@ -968,7 +1008,8 @@ func _inspector() -> void:
    if int(signal_data.index) == road.path.find([cursor.x,cursor.y]):
     desc += "\n%s · llegada en sentido %s" % ["STOP" if signal_data.type == "stop" else "Ceda", "+" if int(signal_data.direction)>0 else "−"]
   var load: float = float(state.traffic_load.get(int(road.id),0.0))
-  desc += "\nOcupación: %d / %.1f (%.0f%%)\nVelocidad estimada: %.0f km/h\n%s" % [int(state.traffic_counts.get(int(road.id),0)),state.road_capacity(road),load*100.0,state.effective_speed(road),"Saturada: genera penalización" if load > Balance.CONGESTION_FINE_THRESHOLD else ("Cargada" if load >= Balance.CONGESTION_WARNING else "Fluida")]
+  var curve_factor: float = RoadGeometry.average_speed_factor(road.path,int(road.get("type",0)))
+  desc += "\nOcupación: %d / %.1f (%.0f%%)\nVelocidad estimada: %.0f km/h · curvas −%.0f%%\n%s" % [int(state.traffic_counts.get(int(road.id),0)),state.road_capacity(road),load*100.0,state.effective_speed(road),maxf(0.0,(1.0-curve_factor)*100.0),"Saturada: genera penalización" if load > Balance.CONGESTION_FINE_THRESHOLD else ("Cargada" if load >= Balance.CONGESTION_WARNING else "Fluida")]
  for event: Dictionary in state.events:
   GameEvents._legacy_entries(event)
   for road: Dictionary in roads:
@@ -995,7 +1036,7 @@ func _inspector() -> void:
  _focus_first()
 
 func _toll_menu(road: Dictionary) -> void:
- _make_panel("Peaje de autopista", "El peaje se paga solo al completar el viaje. Los coches siguen priorizando el menor tiempo estimado.","action")
+ _make_panel("Peaje de autopista", "El peaje se paga al completar el viaje. Los conductores equilibran el tiempo estimado con el coste: cada 3 € de peaje equivalen a 1 segundo de viaje.","action")
  for toll: int in [0,10,25,50,100]:
   _button("%d € por paso" % toll,func() -> void: road.toll = float(toll); _close_panel(); _notify("Peaje actualizado."))
  _button("Volver",func() -> void: _inspector())
@@ -1441,12 +1482,9 @@ func _draw_hud(size: Vector2) -> void:
  var footer_y: float = size.y-bottom_height
  draw_rect(Rect2(0,footer_y,size.x,bottom_height),surface)
  draw_rect(Rect2(0,footer_y,size.x,2.0*scale),Color("b18a52"))
- var visible_count: int = mini(5, TOOLS.size())
- var item_width: float = content_width / float(visible_count)
- var selected_index: int = TOOLS.find(tool)
- for slot: int in range(visible_count):
-  var index: int = posmod(selected_index + slot - visible_count / 2, TOOLS.size())
-  var item_x: float = inset + item_width * slot
+ var item_width: float = content_width / float(TOOLS.size())
+ for index: int in range(TOOLS.size()):
+  var item_x: float = inset + item_width * index
   var active: bool = TOOLS[index] == tool
   if active:
    draw_rect(Rect2(item_x,footer_y+8.0*scale,item_width-4.0*scale,34.0*scale),Color("b18a52"))

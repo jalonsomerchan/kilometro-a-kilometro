@@ -34,5 +34,18 @@ func run_test() -> void:
  assert(root.gui_get_focus_owner()!=third)
  axis.axis_value = 0.0
  game._input(axis)
+ game.menu_motion.reset()
+ var before_key: Control = root.gui_get_focus_owner()
+ var key := InputEventKey.new()
+ key.physical_keycode = KEY_DOWN
+ key.pressed = true
+ root.push_input(key)
+ game._advance_menu_navigation(0.016)
+ var after_key: Control = root.gui_get_focus_owner()
+ assert(after_key == before_key.find_next_valid_focus(), "Una tecla debe avanzar solo un botón")
+ key.pressed = false
+ root.push_input(key)
+ game._advance_menu_navigation(0.016)
+ assert(root.gui_get_focus_owner() == after_key)
  print("MENU REPEAT OK: cruceta y stick, un paso y repetición")
  quit()

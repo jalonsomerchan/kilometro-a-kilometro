@@ -3,7 +3,7 @@ extends RefCounted
 
 # Each road owns its own nodes. Transfers at a shared coordinate are explicit,
 # so an elevated road cannot accidentally connect to the road underneath.
-static func route(roads: Array, origin: Vector2i, destination: Vector2i, excluded_id: int = -1, traffic: Dictionary = {}, source_road_id: int = -1, source_index: int = -1, junction_delays: Dictionary = {}, roundabouts: Dictionary = {}) -> Array:
+static func route(roads: Array, origin: Vector2i, destination: Vector2i, excluded_id: int = -1, traffic: Dictionary = {}, source_road_id: int = -1, source_index: int = -1, junction_delays: Dictionary = {}, roundabouts: Dictionary = {}, toll_value_of_time: float = 0.0) -> Array:
  var edges: Dictionary = {}
  var positions: Dictionary = {}
  var start_nodes: Array = []
@@ -36,7 +36,11 @@ static func route(roads: Array, origin: Vector2i, destination: Vector2i, exclude
    var load: float = float(traffic.get(int(road.id),0.0))
    var congestion: float = maxf(0.16, 1.0 / (1.0 + 2.0 * pow(maxf(0.0,load-0.65),2.0)))
    var weather: float = 0.55 if int(road.get("snow_count",0)) > 0 else 1.0
-   var weight: float = length * 25.0 / (speed * congestion * weather)
+   var curvature: float = RoadGeometry.segment_speed_factor(path,i,int(road.get("type",0)))
+   var weight: float = length * 25.0 / (speed * congestion * weather * curvature)
+   if toll_value_of_time > 0.0 and int(road.get("type",0)) == 6:
+    var road_length: float = maxf(length,float(road.get("length",float(path.size()-1))))
+    weight += float(road.get("toll",0.0))/toll_value_of_time*length/road_length
    edges[a].append({"to":b,"weight":weight+_signal_delay(road,i+1,1,roundabouts)+float(junction_delays.get("%d,%d" % [path[i+1][0],path[i+1][1]],0.0)),"road":int(road.id),"from_index":i,"to_index":i+1})
    edges[b].append({"to":a,"weight":weight+_signal_delay(road,i,-1,roundabouts)+float(junction_delays.get("%d,%d" % [path[i][0],path[i][1]],0.0)),"road":int(road.id),"from_index":i+1,"to_index":i})
  for coord: Vector2i in positions:

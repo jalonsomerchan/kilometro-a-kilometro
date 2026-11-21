@@ -38,6 +38,7 @@ const DEMAND_MAX_CITIES: int = 24
 const DEMAND_DESTINATIONS: int = 6
 const TRAFFIC_MAX_VEHICLES: int = 300
 const ROUTE_REFRESH_SECONDS: float = 5.0
+const TOLL_VALUE_PER_SIM_SECOND: float = 3.0
 const CAPACITY_PER_CELL: float = 0.7
 const CONGESTION_WARNING: float = 0.75
 const CONGESTION_FINE_THRESHOLD: float = 1.0

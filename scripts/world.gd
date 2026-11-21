@@ -45,10 +45,19 @@ func cities_for_chunk(chunk: Vector2i) -> Array[Dictionary]:
   result.append(_city("Villalta", Vector2i(11, 24), 15000))
   return result
  var h: int = absi(hash(Vector3i(chunk.x, chunk.y, seed_value)))
- if h % 3 != 0: return result
- # Candidate constrained to the interior ensures at least 8 cells between chunks.
- var p := chunk * 32 + Vector2i(5 + h % 22, 5 + (h / 31) % 22)
- if p.distance_to(Vector2i(2, 4)) < 15.0 or terrain(p) in ["agua","montaña","marisma"]: return result
+ # Probe the interior in a deterministic order, so unsuitable terrain at one
+ # candidate does not leave the whole region empty.
+ var p := Vector2i.ZERO
+ var found: bool = false
+ for attempt: int in range(484):
+  var offset: int = (h + attempt * 37) % 484
+  var candidate := chunk * 32 + Vector2i(5 + offset % 22, 5 + offset / 22)
+  if candidate.distance_to(Vector2i(2, 4)) < 15.0: continue
+  if terrain(candidate) in ["agua","montaña","marisma"]: continue
+  p = candidate
+  found = true
+  break
+ if not found: return result
  var names: Array[String] = ["Alameda", "Castañar", "Mirador", "Pinar", "Fuente", "Ladera", "Arroyo", "Vega"]
  var population: int = 800 + (h / 97) % 13000
  result.append(_city(names[h % names.size()] + " " + str(h % 1000), p, population))
