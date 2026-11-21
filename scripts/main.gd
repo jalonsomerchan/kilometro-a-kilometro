@@ -43,6 +43,8 @@ var shoulder_left: bool = false
 var shoulder_right: bool = false
 var shoulder_combo_used: bool = false
 var focus_memory: Dictionary = {}
+var menu_direction_time: int = -1000
+const MENU_DIRECTION_INTERVAL_MS: int = 200
 const CONTROL_LABELS: Dictionary = {"move_up":"Mover arriba","move_down":"Mover abajo","move_left":"Mover izquierda","move_right":"Mover derecha","accept_action":"Aceptar","back_action":"Cancelar","inspect_action":"Inspector","menu_action":"Menú","road_prev":"Vía anterior","road_next":"Vía siguiente","pause_action":"Pausa","tool_action":"Herramienta","zoom_in":"Acercar","zoom_out":"Alejar"}
 const DEFAULT_KEYS: Dictionary = {"move_up":[KEY_UP,KEY_W],"move_down":[KEY_DOWN,KEY_S],"move_left":[KEY_LEFT,KEY_A],"move_right":[KEY_RIGHT,KEY_D],"accept_action":[KEY_ENTER,KEY_SPACE],"back_action":[KEY_ESCAPE,KEY_DELETE],"inspect_action":[KEY_I],"menu_action":[KEY_M],"road_prev":[KEY_Q],"road_next":[KEY_E],"pause_action":[KEY_P],"tool_action":[KEY_TAB],"zoom_in":[KEY_EQUAL,KEY_KP_ADD],"zoom_out":[KEY_MINUS,KEY_KP_SUBTRACT]}
 
@@ -98,6 +100,9 @@ func _configure_input() -> void:
 func _input(event: InputEvent) -> void:
  if event is InputEventJoypadButton or event is InputEventJoypadMotion: last_device = "mando"
  elif event is InputEventKey: last_device = "teclado"
+ if screen != "game" and waiting_binding.is_empty() and _limit_menu_navigation(event,Time.get_ticks_msec()):
+  get_viewport().set_input_as_handled()
+  return
  if screen == "game" and event is InputEventJoypadButton and event.button_index in [JOY_BUTTON_LEFT_SHOULDER,JOY_BUTTON_RIGHT_SHOULDER]:
   var left: bool = event.button_index == JOY_BUTTON_LEFT_SHOULDER
   if left: shoulder_left = event.pressed
@@ -135,6 +140,14 @@ func _input(event: InputEvent) -> void:
  _save_settings()
  get_viewport().set_input_as_handled()
  _controls_menu()
+
+func _limit_menu_navigation(event: InputEvent, now: int) -> bool:
+ if not (event.is_action_pressed("ui_up",true) or event.is_action_pressed("ui_down",true)):
+  return false
+ if now - menu_direction_time < MENU_DIRECTION_INTERVAL_MS:
+  return true
+ menu_direction_time = now
+ return false
 
 func _save_settings() -> void:
  settings_error = "" if SettingsStore.write_settings(settings) == OK else "No se pudieron guardar los ajustes."
