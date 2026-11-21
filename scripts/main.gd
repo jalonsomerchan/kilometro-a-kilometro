@@ -114,8 +114,8 @@ func _unhandled_input(event: InputEvent) -> void:
   else: _delete_prompt()
  elif event.is_action_pressed("inspect_action"): _inspector()
  elif event.is_action_pressed("menu_action"): _game_menu()
- elif event.is_action_pressed("road_prev"): selected_type = posmod(selected_type - 1, 7); _refresh_proposal()
- elif event.is_action_pressed("road_next"): selected_type = (selected_type + 1) % 7; _refresh_proposal()
+ elif event.is_action_pressed("road_prev"): selected_type = posmod(selected_type - 1, 7); _refresh_proposal(); _road_type_notice()
+ elif event.is_action_pressed("road_next"): selected_type = (selected_type + 1) % 7; _refresh_proposal(); _road_type_notice()
  elif event.is_action_pressed("pause_action"): simulation_speed = 1 if simulation_speed == 0 else 0
  elif event.is_action_pressed("tool_action"): _cycle_tool()
  else: return
@@ -125,6 +125,11 @@ func _move(dir: Vector2i) -> void:
  cursor += dir
  selected_road = 0
  _refresh_proposal()
+
+func _road_type_notice() -> void:
+ var requirement: String = state.unlock_reason(selected_type)
+ if not requirement.is_empty(): _notify("%s bloqueada. %s" % [Balance.ROADS[selected_type].name,requirement])
+ else: _notify("Vía disponible: " + str(Balance.ROADS[selected_type].name))
 
 func _refresh_proposal() -> void:
  if drawing:
@@ -153,8 +158,10 @@ func _review() -> void:
  var cost: float = state.price(proposal,selected_type)
  var text: String = "%s · %.1f casillas\nBase: %.0f €  ·  Terreno: %.0f €\nPuente: %d casillas · %.0f €\nPasos elevados: %d · %.0f €\nTotal: %.0f €  ·  Obra: %.0f s\nSaldo disponible: %.0f €" % [Balance.ROADS[selected_type].name,proposal.length,float(proposal.length)*Balance.CELL_COST*float(Balance.ROADS[selected_type].cost),proposal.terrain_cost,proposal.water,float(proposal.water)*Balance.BRIDGE_COST,proposal.get("raised_indices",[]).size(),proposal.get("overpass_cost",0.0),cost,maxf(4.0,float(proposal.length)*0.7),state.money]
  _make_panel("Revisar presupuesto",text,"review")
- if cost <= state.money: _button("Confirmar obra",func() -> void: state.build(proposal,selected_type); drawing = false; proposal = {}; _close_panel(); _notify("Obra iniciada. Se abrirá al terminar."))
- else: _label("Fondos insuficientes. Vuelve y ajusta el trazado.")
+ var locked: String = state.unlock_reason(selected_type)
+ if not locked.is_empty(): _label("Vía bloqueada. " + locked)
+ if cost <= state.money and locked.is_empty(): _button("Confirmar obra",func() -> void: state.build(proposal,selected_type); drawing = false; proposal = {}; _close_panel(); _notify("Obra iniciada. Se abrirá al terminar."))
+ elif cost > state.money: _label("Fondos insuficientes. Vuelve y ajusta el trazado.")
  _button("Volver al trazado",func() -> void: _close_panel())
  _focus_first()
 
@@ -200,10 +207,12 @@ func _work_menu(road: Dictionary, kind: String) -> void:
     if int(other.id) != int(road.id) and int(other.type) <= 3 and other.path.has(point): unsafe_upgrade = true
  var description: String = "%s · %.0f € · cierre %.0f s\n%s\n%s" % ["Reparar a 100%" if repair else "Mejorar a " + str(Balance.ROADS[target].name),cost,duration,state.closure_impact(int(road.id)),"Mantenimiento preventivo: " + ("activo" if road.get("maintenance",false) else "inactivo")]
  if bridge_cost > 0.0: description += "\nReemplazo de puentes: %.0f € (incluido); cierre durante la obra." % bridge_cost
+ var unlock: String = state.unlock_reason(target) if not repair else ""
+ if not unlock.is_empty(): description += "\nVía bloqueada: " + unlock
  if unsafe_upgrade: description += "\nMejora no disponible: eliminaría conexiones a nivel y aún no se pueden construir enlaces."
  if road.has("scheduled_work"): description += "\nObra pendiente: " + str(road.scheduled_work.status)
  _make_panel("Reparar y mantener" if repair else "Mejorar",description,"action")
- if float(road.work) <= 0.0 and state.money >= cost and not unsafe_upgrade:
+ if float(road.work) <= 0.0 and state.money >= cost and not unsafe_upgrade and unlock.is_empty():
   var label: String = "Asumir aislamiento e iniciar" if not lost.is_empty() else "Iniciar ahora"
   _button(label,func() -> void:
    if not lost.is_empty(): _confirm_work(road,kind,target,cost,duration,false)
@@ -447,12 +456,43 @@ func _game_menu() -> void:
  _button("Cruces: " + ("paso elevado" if elevated_crossings else "a nivel"),func() -> void: elevated_crossings = not elevated_crossings; _refresh_proposal(); _game_menu())
  _button("Velocidad: %s" % ("pausa" if simulation_speed == 0 else str(simulation_speed)+"×"),func() -> void: simulation_speed = {0:1,1:2,2:4,4:0}[simulation_speed]; _game_menu())
  _button("Vista: " + view_mode,func() -> void: view_mode = {"normal":"tráfico","tráfico":"conservación","conservación":"demanda","demanda":"normal"}[view_mode]; _game_menu())
+ _button("Economía y contratos",func() -> void: _economy_menu())
  _button("Balance y tráfico",func() -> void: _traffic_summary())
  _button("Avisos y eventos",func() -> void: _events_menu())
  _button("Guardar partida",func() -> void: _save())
  _button("Volver al menú principal",func() -> void: _return_prompt())
  _button("Continuar jugando",func() -> void: _close_panel())
  _focus_first()
+
+func _economy_menu() -> void:
+ var today_income: float = state.income-state.income_day_start
+ var today_expenses: float = state.expenses-state.expenses_day_start
+ var desc: String = "Hoy: ingresos %.0f € · gastos %.0f € · saldo %+.0f €\nAyer: ingresos %.0f € · gastos %.0f € · saldo %+.0f €\nAcumulado: ingresos %.0f € · gastos %.0f €\nDe ellos: peajes %.0f € · contratos %.0f €\nCiudades conectadas: %d · fiabilidad %.0f%%\nPréstamo pendiente: %.0f € · cuotas fallidas %d" % [today_income,today_expenses,today_income-today_expenses,state.yesterday_income,state.yesterday_expenses,state.yesterday_income-state.yesterday_expenses,state.income,state.expenses,state.toll_income,state.contract_income,state.connected_cities(),state.reliability()*100.0,state.loan_remaining,state.loan_overdue]
+ if not state.contract.is_empty():
+  var c: Dictionary = state.contract
+  desc += "\nContrato %s: %s ↔ %s · %.0f €" % [c.status,state.cities[int(c.origin)].name,state.cities[int(c.destination)].name,c.reward]
+  if c.status == "active": desc += " · quedan %.0f s" % maxf(0.0,float(c.deadline)-state.elapsed)
+ _make_panel("Economía y contratos",desc,"economy")
+ if not state.loan_taken and state.money < Balance.LOAN_PRINCIPAL:
+  _button("Préstamo: +%.0f €; devolver %.0f € en cuotas de %.0f €/día" % [Balance.LOAN_PRINCIPAL,Balance.LOAN_TOTAL,Balance.LOAN_DAILY_PAYMENT],func() -> void: state.take_loan(); _economy_menu())
+ if state.contract.get("status","") == "offered":
+  _button("Aceptar contrato",func() -> void: state.accept_contract(); _economy_menu())
+ elif state.contract.get("status","") != "active":
+  _button("Buscar contrato de conexión",func() -> void: _offer_contract())
+ _button("Volver",func() -> void: _game_menu())
+ _focus_first()
+
+func _offer_contract() -> void:
+ var count: int = mini(state.cities.size(),12)
+ for a: int in range(count):
+  for b: int in range(a+1,count):
+   if state.contract_history.has("%d:%d" % [a,b]): continue
+   if RoadNetwork.route(state.roads,state._city_position(a),state._city_position(b)).is_empty():
+    state.offer_contract(a,b)
+    _economy_menu()
+    return
+ _economy_menu()
+ _label("No hay conexiones nuevas disponibles entre las primeras ciudades conocidas.")
 
 func _traffic_summary() -> void:
  var text: String = "Demanda potencial: %.1f viajes\nIniciados: %d · completados: %d\nSin atender: %d · interrumpidos: %d\nViajes con retraso: %d\n\nPenalización acumulada por atasco: %.0f €\nPenalización acumulada por retrasos: %.0f €\nPenalizaciones de hoy: %.0f € · ayer: %.0f €\n\nAtasco: 2,5 €/s por cada 100%% de ocupación sobre la capacidad. Retraso: 4 €/s por encima de 1,6 segundos por casilla en línea recta (mínimo 3 s; máximo 80%% del ingreso)." % [state.potential_demand,state.started_trips,state.completed,state.unmet_demand,state.interrupted,state.late_trips,state.congestion_fines,state.delay_fines,state.today_penalties,state.yesterday_penalties]
@@ -505,7 +545,7 @@ func _inspector() -> void:
  var desc: String = "Casilla (%d, %d) · %s" % [cursor.x,cursor.y,state.world.terrain(cursor)]
  for city: Dictionary in state.cities:
   if int(city.x) == cursor.x and int(city.y) == cursor.y:
-   desc += "\n%s · %d habitantes\n" % [city.name,city.population]
+   desc += "\n%s · %s · %d habitantes\n" % [city.name,WorldGenerator.city_size(int(city.population)),city.population]
    var count: int = 0
    for destination: Dictionary in state.cities:
     if destination == city: continue
@@ -535,15 +575,25 @@ func _inspector() -> void:
   for road: Dictionary in roads:
    if int(event.road_id) == int(road.id): desc += "\n%s: quedan %.0f s%s" % [event.title,event.remaining," · CERRADA" if event.closed else ""]
  _make_panel("Inspector",desc,"inspector")
+ if not roads.is_empty() and int(roads[mini(selected_road,roads.size()-1)].type) == 6:
+  var toll_road: Dictionary = roads[mini(selected_road,roads.size()-1)]
+  _button("Peaje: %.0f €" % float(toll_road.get("toll",0.0)),func() -> void: _toll_menu(toll_road))
  if roads.size() > 1: _button("Siguiente elemento",func() -> void: selected_road = (selected_road+1)%roads.size(); _inspector())
  _button("Volver",func() -> void: _close_panel())
+ _focus_first()
+
+func _toll_menu(road: Dictionary) -> void:
+ _make_panel("Peaje de autopista", "El peaje se paga solo al completar el viaje. Los coches siguen priorizando el menor tiempo estimado.","action")
+ for toll: int in [0,10,25,50,100]:
+  _button("%d € por paso" % toll,func() -> void: road.toll = float(toll); _close_panel(); _notify("Peaje actualizado."))
+ _button("Volver",func() -> void: _inspector())
  _focus_first()
 
 func _back() -> void:
  match screen:
   "title": _quit_prompt()
   "new", "load", "options", "about", "quit": _show_title()
-  "return", "events", "traffic_summary": _game_menu()
+  "return", "events", "traffic_summary", "economy": _game_menu()
   _: _close_panel()
 
 func _close_panel() -> void:
@@ -594,7 +644,7 @@ func _draw() -> void:
   var radius: float = clampf(5.0+sqrt(float(city.population))/22.0,7.0,13.0)*zoom
   draw_circle(pos,radius,Color("30494a"))
   draw_rect(Rect2(pos-Vector2(radius*0.6,radius*0.65),Vector2(radius*1.2,radius*1.3)),Color("efe4c9"))
-  draw_string(ThemeDB.fallback_font,pos+Vector2(0,-radius-5),str(city.name),HORIZONTAL_ALIGNMENT_CENTER,-1,16,Color("1a2c2c"))
+  draw_string(ThemeDB.fallback_font,pos+Vector2(0,-radius-5),"%s · %s · %d hab." % [city.name,WorldGenerator.city_size(int(city.population)),city.population],HORIZONTAL_ALIGNMENT_CENTER,-1,16,Color("1a2c2c"))
  if state != null:
   for vehicle: Dictionary in state.vehicles: _draw_vehicle(vehicle,offset,cell)
   var cpos: Vector2 = offset+Vector2(cursor)*cell

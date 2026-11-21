@@ -12,9 +12,9 @@ import zipfile
 from pathlib import Path
 
 # CAMBIAR POR TU USUARIO Y REPOSITORIO
-REPO = "jalonsomerchan/Road-Tyccon"
+REPO = "jalonsomerchan/kilometro-a-kilometro"
 
-BASE = Path.home() / "Games" / "RoadTyccon"
+BASE = Path.home() / "Games" / "KilometroAKilometro"
 GAME = BASE / "juego"
 OLD = BASE / "juego-anterior"
 VERSION = BASE / "version.txt"

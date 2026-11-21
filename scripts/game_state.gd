@@ -47,6 +47,10 @@ var loan_remaining: float = 0.0
 var loan_overdue: int = 0
 var contract: Dictionary = {}
 var contracts_completed: int = 0
+var toll_income: float = 0.0
+var contract_income: float = 0.0
+var contract_history: Array = []
+var next_contract_check: float = 0.0
 
 func _init(seed_number: int = 1) -> void:
  seed_value = seed_number
@@ -315,7 +319,7 @@ func unlock_reason(road_type: int) -> String:
  return "Requiere %d viajes (%d), %d ciudades conectadas (%d) y %.0f%% de fiabilidad (%.0f%%)." % [required,completed,cities_required,cities_connected,reliability_required*100.0,reliability()*100.0]
 
 func take_loan() -> bool:
- if loan_taken: return false
+ if loan_taken or money >= Balance.LOAN_PRINCIPAL: return false
  loan_taken = true
  loan_remaining = Balance.LOAN_TOTAL
  money += Balance.LOAN_PRINCIPAL
@@ -334,7 +338,7 @@ func _pay_loan_installment() -> void:
  latest_notice = "Cuota del préstamo pagada: %.0f €. Deuda restante: %.0f €." % [installment,loan_remaining]
 
 func offer_contract(origin: int, destination: int) -> void:
- contract = {"origin":origin,"destination":destination,"status":"offered","reward":2200.0,"duration":Balance.DAY_SECONDS*4.0}
+ contract = {"origin":origin,"destination":destination,"status":"offered","reward":ceil(1600.0+_city_position(origin).distance_to(_city_position(destination))*100.0),"duration":Balance.DAY_SECONDS*4.0}
 
 func accept_contract() -> void:
  if contract.get("status","") != "offered": return
@@ -343,13 +347,17 @@ func accept_contract() -> void:
 
 func _update_contract() -> void:
  if contract.get("status","") != "active": return
+ if elapsed < next_contract_check and elapsed < float(contract.deadline): return
+ next_contract_check = elapsed + 2.0
  var origin: int = int(contract.origin)
  var destination: int = int(contract.destination)
  if origin >= cities.size() or destination >= cities.size(): return
  if not RoadNetwork.route(roads,_city_position(origin),_city_position(destination)).is_empty():
   money += float(contract.reward)
   income += float(contract.reward)
+  contract_income += float(contract.reward)
   contract.status = "completed"
+  contract_history.append("%d:%d" % [mini(origin,destination),maxi(origin,destination)])
   contracts_completed += 1
   latest_notice = "Contrato completado: +%.0f €." % float(contract.reward)
  elif elapsed >= float(contract.deadline):
@@ -427,6 +435,7 @@ func _advance_route_vehicle(vehicle: Dictionary, dt: float) -> bool:
    var toll: float = float(vehicle.get("toll_due",0.0))
    money += fare+toll
    income += fare+toll
+   toll_income += toll
    var target_time: float = maxf(3.0,float(vehicle.direct_distance)*Balance.LATE_GRACE_MULTIPLIER)
    var delay: float = maxf(0.0,float(vehicle.get("travel_time",0.0))-target_time)
    if delay > 0.0:
@@ -544,7 +553,7 @@ func _road_by_id(id: int) -> Dictionary:
  return {}
 
 func data() -> Dictionary:
- return {"version":1,"generator_version":1,"name":game_name,"seed":seed_value,"guided":guided,"money":money,"elapsed":elapsed,"completed":completed,"income":income,"expenses":expenses,"cities":cities,"chunks":chunks,"roads":roads,"vehicles":vehicles,"next_id":next_id,"spawn_clock":spawn_clock,"cursor_x":cursor_x,"cursor_y":cursor_y,"interrupted":interrupted,"events":events,"next_event":next_event,"latest_notice":latest_notice,"notice_road":notice_road,"demand_credit":demand_credit,"potential_demand":potential_demand,"started_trips":started_trips,"unmet_demand":unmet_demand,"congestion_fines":congestion_fines,"delay_fines":delay_fines,"today_penalties":today_penalties,"yesterday_penalties":yesterday_penalties,"late_trips":late_trips,"route_refresh_clock":route_refresh_clock,"junction_busy_until":junction_busy_until,"income_day_start":income_day_start,"expenses_day_start":expenses_day_start,"yesterday_income":yesterday_income,"yesterday_expenses":yesterday_expenses,"loan_taken":loan_taken,"loan_remaining":loan_remaining,"loan_overdue":loan_overdue,"contract":contract,"contracts_completed":contracts_completed,"saved_at":Time.get_datetime_string_from_system()}
+ return {"version":1,"generator_version":1,"name":game_name,"seed":seed_value,"guided":guided,"money":money,"elapsed":elapsed,"completed":completed,"income":income,"expenses":expenses,"cities":cities,"chunks":chunks,"roads":roads,"vehicles":vehicles,"next_id":next_id,"spawn_clock":spawn_clock,"cursor_x":cursor_x,"cursor_y":cursor_y,"interrupted":interrupted,"events":events,"next_event":next_event,"latest_notice":latest_notice,"notice_road":notice_road,"demand_credit":demand_credit,"potential_demand":potential_demand,"started_trips":started_trips,"unmet_demand":unmet_demand,"congestion_fines":congestion_fines,"delay_fines":delay_fines,"today_penalties":today_penalties,"yesterday_penalties":yesterday_penalties,"late_trips":late_trips,"route_refresh_clock":route_refresh_clock,"junction_busy_until":junction_busy_until,"income_day_start":income_day_start,"expenses_day_start":expenses_day_start,"yesterday_income":yesterday_income,"yesterday_expenses":yesterday_expenses,"loan_taken":loan_taken,"loan_remaining":loan_remaining,"loan_overdue":loan_overdue,"contract":contract,"contracts_completed":contracts_completed,"toll_income":toll_income,"contract_income":contract_income,"contract_history":contract_history,"next_contract_check":next_contract_check,"saved_at":Time.get_datetime_string_from_system()}
 
 static func from_data(d: Dictionary) -> GameState:
  var s := GameState.new(int(d.seed))
@@ -590,5 +599,9 @@ static func from_data(d: Dictionary) -> GameState:
  s.loan_overdue = int(d.get("loan_overdue",0))
  s.contract = d.get("contract",{})
  s.contracts_completed = int(d.get("contracts_completed",0))
+ s.toll_income = float(d.get("toll_income",0.0))
+ s.contract_income = float(d.get("contract_income",0.0))
+ s.contract_history = d.get("contract_history",[])
+ s.next_contract_check = float(d.get("next_contract_check",0.0))
  s._update_traffic()
  return s
