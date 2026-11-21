@@ -24,6 +24,8 @@ El terreno se calcula con coordenadas globales y semilla; las ciudades aparecen 
 | Zoom | − / + | LT / RT |
 | Herramienta | Tab o menú | LB + RB o menú |
 | Pausa | P | Start |
+| Ir al tramo del aviso visible | F6 | R4 |
+| Descartar aviso visible | F7 | L4 |
 
 En el menú se puede elegir la velocidad y las herramientas. El estado de las obras se muestra en el inspector. Las reparaciones y mejoras cierran temporalmente el tramo y tienen presupuesto de confirmación.
 
@@ -55,7 +57,7 @@ Por cada unidad completa de ocupación que supere la capacidad se cargan 2,5 €
 
 ## Eventos y opciones
 
-Las nevadas, crecidas y ferias pueden anunciarse antes de empezar. Los sucesos afectan a una zona de carreteras; los incendios pueden extenderse a vías forestales cercanas. En «Avisos y eventos» se pueden consultar las consecuencias, ir al tramo afectado y pagar para despejar de forma individual tramos con nieve o desprendimientos. Una feria incrementa la demanda hacia la ciudad más próxima.
+Las nevadas, crecidas y ferias pueden anunciarse antes de empezar. Los sucesos afectan a una zona de carreteras; los incendios pueden extenderse a vías forestales cercanas. En «Avisos y eventos» se pueden consultar las consecuencias, ir al tramo afectado y pagar para despejar de forma individual tramos con nieve o desprendimientos. Mientras aparece un aviso, R4 (F6 en teclado) lleva al tramo asociado y L4 (F7) oculta el aviso sin cancelar el evento. Si Steam Input no expone los botones traseros, asigna R4 a F6 y L4 a F7 en la configuración del mando de Steam. Una feria incrementa la demanda hacia la ciudad más próxima.
 
 Las opciones están disponibles desde el menú principal y durante la partida. Permiten cambiar pantalla, cuadrícula y escala, reasignar teclas y restaurar los controles predeterminados. Los ajustes se guardan en `user://settings.cfg`. En mando, LB + RB cambia de herramienta y una pulsación individual cambia el tipo de vía.
 
@@ -85,6 +87,7 @@ godot --headless --path . --script res://tests/fire_spread_smoke.gd
 godot --headless --path . --script res://tests/settings_smoke.gd
 godot --headless --path . --script res://tests/navigation_events_ui_smoke.gd
 godot --headless --path . --script res://tests/controller_combo_smoke.gd
+godot --headless --path . --script res://tests/notice_smoke.gd
 ```
 
 Las pruebas comprueban determinismo del terreno, construcción y cobro único, rutas por varios tramos, cruces, cierres, zoom por teclado y reconstrucción del estado serializado. No sustituye a una prueba interactiva de mando ni a una verificación visual.

@@ -15,6 +15,7 @@ var accumulator: float = 0.0
 var autosave_clock: float = 0.0
 var notice: String = ""
 var notice_time: float = 0.0
+var notice_road_id: int = -1
 var screen: String = "title"
 var overlay: CanvasLayer
 var panel: PanelContainer
@@ -45,8 +46,8 @@ var shoulder_combo_used: bool = false
 var focus_memory: Dictionary = {}
 var menu_direction_time: int = -1000
 const MENU_DIRECTION_INTERVAL_MS: int = 200
-const CONTROL_LABELS: Dictionary = {"move_up":"Mover arriba","move_down":"Mover abajo","move_left":"Mover izquierda","move_right":"Mover derecha","accept_action":"Aceptar","back_action":"Cancelar","inspect_action":"Inspector","menu_action":"Menú","road_prev":"Vía anterior","road_next":"Vía siguiente","pause_action":"Pausa","tool_action":"Herramienta","zoom_in":"Acercar","zoom_out":"Alejar"}
-const DEFAULT_KEYS: Dictionary = {"move_up":[KEY_UP,KEY_W],"move_down":[KEY_DOWN,KEY_S],"move_left":[KEY_LEFT,KEY_A],"move_right":[KEY_RIGHT,KEY_D],"accept_action":[KEY_ENTER,KEY_SPACE],"back_action":[KEY_ESCAPE,KEY_DELETE],"inspect_action":[KEY_I],"menu_action":[KEY_M],"road_prev":[KEY_Q],"road_next":[KEY_E],"pause_action":[KEY_P],"tool_action":[KEY_TAB],"zoom_in":[KEY_EQUAL,KEY_KP_ADD],"zoom_out":[KEY_MINUS,KEY_KP_SUBTRACT]}
+const CONTROL_LABELS: Dictionary = {"move_up":"Mover arriba","move_down":"Mover abajo","move_left":"Mover izquierda","move_right":"Mover derecha","accept_action":"Aceptar","back_action":"Cancelar","inspect_action":"Inspector","menu_action":"Menú","road_prev":"Vía anterior","road_next":"Vía siguiente","pause_action":"Pausa","tool_action":"Herramienta","zoom_in":"Acercar","zoom_out":"Alejar","notice_go":"Ir al aviso","notice_dismiss":"Descartar aviso"}
+const DEFAULT_KEYS: Dictionary = {"move_up":[KEY_UP,KEY_W],"move_down":[KEY_DOWN,KEY_S],"move_left":[KEY_LEFT,KEY_A],"move_right":[KEY_RIGHT,KEY_D],"accept_action":[KEY_ENTER,KEY_SPACE],"back_action":[KEY_ESCAPE,KEY_DELETE],"inspect_action":[KEY_I],"menu_action":[KEY_M],"road_prev":[KEY_Q],"road_next":[KEY_E],"pause_action":[KEY_P],"tool_action":[KEY_TAB],"zoom_in":[KEY_EQUAL,KEY_KP_ADD],"zoom_out":[KEY_MINUS,KEY_KP_SUBTRACT],"notice_go":[KEY_F6],"notice_dismiss":[KEY_F7]}
 
 func _ready() -> void:
  settings = SettingsStore.read_settings()
@@ -85,7 +86,7 @@ func _configure_input() -> void:
    var event := InputEventKey.new()
    event.physical_keycode = key
    InputMap.action_add_event(pair[0],event)
- var joy: Dictionary = {"move_up":JOY_BUTTON_DPAD_UP,"move_down":JOY_BUTTON_DPAD_DOWN,"move_left":JOY_BUTTON_DPAD_LEFT,"move_right":JOY_BUTTON_DPAD_RIGHT,"accept_action":JOY_BUTTON_A,"back_action":JOY_BUTTON_B,"inspect_action":JOY_BUTTON_Y,"menu_action":JOY_BUTTON_X,"road_prev":JOY_BUTTON_LEFT_SHOULDER,"road_next":JOY_BUTTON_RIGHT_SHOULDER,"pause_action":JOY_BUTTON_START}
+ var joy: Dictionary = {"move_up":JOY_BUTTON_DPAD_UP,"move_down":JOY_BUTTON_DPAD_DOWN,"move_left":JOY_BUTTON_DPAD_LEFT,"move_right":JOY_BUTTON_DPAD_RIGHT,"accept_action":JOY_BUTTON_A,"back_action":JOY_BUTTON_B,"inspect_action":JOY_BUTTON_Y,"menu_action":JOY_BUTTON_X,"road_prev":JOY_BUTTON_LEFT_SHOULDER,"road_next":JOY_BUTTON_RIGHT_SHOULDER,"pause_action":JOY_BUTTON_START,"notice_go":JOY_BUTTON_PADDLE1,"notice_dismiss":JOY_BUTTON_PADDLE2}
  for action: String in joy:
   var event := InputEventJoypadButton.new()
   event.button_index = joy[action]
@@ -170,7 +171,7 @@ func _process(delta: float) -> void:
    autosave_clock += Balance.FIXED_STEP
   if not state.latest_notice.is_empty() and state.latest_notice != shown_event_notice:
    shown_event_notice = state.latest_notice
-   _notify(state.latest_notice)
+   _notify(state.latest_notice,state.notice_road)
   if autosave_clock >= 120.0:
    autosave_clock = 0.0
    var error: String = SaveManager.save_game(state,true)
@@ -185,7 +186,11 @@ func _unhandled_input(event: InputEvent) -> void:
    get_viewport().set_input_as_handled()
    _back()
   return
- if event.is_action_pressed("move_up"): _move(Vector2i.UP)
+ if event.is_action_pressed("notice_go") and notice_time > 0.0:
+  _go_to_notice()
+ elif event.is_action_pressed("notice_dismiss") and notice_time > 0.0:
+  _dismiss_notice()
+ elif event.is_action_pressed("move_up"): _move(Vector2i.UP)
  elif event.is_action_pressed("move_down"): _move(Vector2i.DOWN)
  elif event.is_action_pressed("move_left"): _move(Vector2i.LEFT)
  elif event.is_action_pressed("move_right"): _move(Vector2i.RIGHT)
@@ -747,9 +752,28 @@ func _close_panel() -> void:
  for child: Node in overlay.get_children(): child.queue_free()
  screen = "game"
 
-func _notify(message: String) -> void:
+func _notify(message: String, road_id: int = -1) -> void:
  notice = message
- notice_time = 5.0
+ notice_road_id = road_id
+ notice_time = 12.0
+
+func _dismiss_notice() -> void:
+ # Hide only the banner; active events and their consequences continue.
+ notice_time = 0.0
+ notice_road_id = -1
+
+func _go_to_notice() -> void:
+ if state == null or notice_road_id < 0: return
+ var road: Dictionary = state._road_by_id(notice_road_id)
+ if road.is_empty() or road.path.is_empty():
+  _notify("El tramo del aviso ya no existe.")
+  return
+ var point: Array = road.path[int(road.path.size()/2)]
+ cursor = Vector2i(int(point[0]),int(point[1]))
+ camera_cell = Vector2(cursor)
+ selected_road = 0
+ _refresh_proposal()
+ _dismiss_notice()
 
 func _draw() -> void:
  var size: Vector2 = get_viewport_rect().size
@@ -1017,5 +1041,10 @@ func _draw_hud(size: Vector2) -> void:
   draw_rect(Rect2(20,size.y-bottom_height-34*scale,minf(size.x-40,650*scale),30*scale),Color(0.04,0.09,0.10,0.9))
   _draw_fit(font,Vector2(30,size.y-bottom_height-12*scale),legend,help_size,size.x-60,Color.WHITE)
  if notice_time > 0.0:
-  draw_rect(Rect2(20,top_height+12,minf(size.x-40,1000*scale),38*scale),Color(0.06,0.12,0.13,0.93))
-  _draw_fit(font,Vector2(32,top_height+37*scale),notice,roundi(18*scale),minf(size.x-64,976*scale),Color.WHITE)
+  draw_rect(Rect2(20,top_height+12,minf(size.x-40,1000*scale),64*scale),Color(0.06,0.12,0.13,0.93))
+  _draw_fit(font,Vector2(32,top_height+34*scale),notice,roundi(18*scale),minf(size.x-64,976*scale),Color.WHITE)
+  var can_go: bool = notice_road_id >= 0 and not state._road_by_id(notice_road_id).is_empty()
+  var go_key: String = "R4" if last_device == "mando" else _key_hint("notice_go","F6")
+  var dismiss_key: String = "L4" if last_device == "mando" else _key_hint("notice_dismiss","F7")
+  var hint: String = "%s ir al aviso   ·   %s descartar" % [go_key,dismiss_key] if can_go else "%s descartar" % dismiss_key
+  _draw_fit(font,Vector2(32,top_height+59*scale),hint,help_size,minf(size.x-64,976*scale),Color("f5e6ad"))

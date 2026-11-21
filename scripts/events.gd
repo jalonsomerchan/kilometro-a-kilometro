@@ -87,6 +87,7 @@ static func advance(state: GameState, dt: float) -> void:
     if _distance_to_road(road,center) <= RADIUS*1.5 and _road_has_forest(state,road): _affect(state,event,road)
    state.route_cache.clear()
    state.latest_notice = "El incendio se extiende: %d tramos afectados." % event.affected.size()
+   state.notice_road = int(event.road_id)
   if float(event.remaining) > 0.0: continue
   for entry: Dictionary in event.affected: _release(state,event,entry,true)
   state.latest_notice = "%s terminado cerca del tramo %d." % [event.title,event.road_id]

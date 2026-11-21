@@ -153,6 +153,7 @@ func step(dt: float) -> void:
     else:
      road.maintenance = false
      latest_notice = "Mantenimiento suspendido en el tramo %d: fondos insuficientes." % int(road.id)
+     notice_road = int(road.id)
    road.condition = maxf(0.0, float(road.condition) - dt * 0.0007 * wear_factor)
    for bridge: Dictionary in road.get("bridges",[]):
     var old_condition: float = float(bridge.condition)
@@ -337,11 +338,13 @@ func _pay_loan_installment() -> void:
  if money < installment:
   loan_overdue += 1
   latest_notice = "Cuota del préstamo pendiente: %.0f €." % installment
+  notice_road = -1
   return
  money -= installment
  expenses += installment
  loan_remaining -= installment
  latest_notice = "Cuota del préstamo pagada: %.0f €. Deuda restante: %.0f €." % [installment,loan_remaining]
+ notice_road = -1
 
 func offer_contract(origin: int, destination: int) -> void:
  contract = {"origin":origin,"destination":destination,"status":"offered","reward":ceil(1600.0+_city_position(origin).distance_to(_city_position(destination))*100.0),"duration":Balance.DAY_SECONDS*4.0}
@@ -366,9 +369,11 @@ func _update_contract() -> void:
   contract_history.append("%d:%d" % [mini(origin,destination),maxi(origin,destination)])
   contracts_completed += 1
   latest_notice = "Contrato completado: +%.0f €." % float(contract.reward)
+  notice_road = -1
  elif elapsed >= float(contract.deadline):
   contract.status = "expired"
   latest_notice = "El plazo del contrato de conexión ha terminado."
+  notice_road = -1
 
 func _priority_approaching(key: String, waiting_vehicle: Dictionary) -> bool:
  var parts: PackedStringArray = key.split(",")
