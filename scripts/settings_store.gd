@@ -2,12 +2,14 @@ class_name SettingsStore
 extends RefCounted
 
 static func read_settings(path: String = "user://settings.cfg") -> Dictionary:
- var defaults: Dictionary = {"grid":true,"fullscreen":false,"ui_scale":1.0,"keys":{}}
+ var defaults: Dictionary = {"grid":true,"fullscreen":false,"ui_scale":1.0,"cursor_speed":"normal","keys":{}}
  var config := ConfigFile.new()
  if config.load(path) != OK: return defaults
  defaults.grid = bool(config.get_value("display","grid",true))
  defaults.fullscreen = bool(config.get_value("display","fullscreen",false))
  defaults.ui_scale = clampf(float(config.get_value("display","ui_scale",1.0)),1.0,1.4)
+ var speed: String = str(config.get_value("controls","cursor_speed","normal"))
+ if speed in ["lento","normal","rapido"]: defaults.cursor_speed = speed
  var keys: Variant = config.get_value("controls","keys",{})
  if keys is Dictionary: defaults.keys = keys
  return defaults
@@ -17,5 +19,6 @@ static func write_settings(settings: Dictionary, path: String = "user://settings
  config.set_value("display","grid",bool(settings.grid))
  config.set_value("display","fullscreen",bool(settings.fullscreen))
  config.set_value("display","ui_scale",float(settings.ui_scale))
+ config.set_value("controls","cursor_speed",str(settings.get("cursor_speed","normal")))
  config.set_value("controls","keys",settings.keys)
  return config.save(path)

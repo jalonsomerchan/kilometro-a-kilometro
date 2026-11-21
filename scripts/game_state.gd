@@ -156,7 +156,7 @@ func step(dt: float) -> void:
   var road: Dictionary = roads[posmod(seed_value + int(elapsed / 240.0), roads.size())]
   var kinds: Array[String] = ["snow","fair"]
   if GameEvents.road_has_terrain(self,road,["bosque"]): kinds.append("fire")
-  if GameEvents.road_has_terrain(self,road,["colina","roca"]): kinds.append("landslide")
+  if GameEvents.road_has_terrain(self,road,["colina","montaña","roca"]): kinds.append("landslide")
   if int(road.get("water",0)) > 0: kinds.append("flood")
   var kind: String = kinds[posmod(seed_value + int(elapsed / 240.0),kinds.size())]
   if kind in ["snow","flood","fair"]: GameEvents.forecast(self,kind,int(road.id))
@@ -487,7 +487,7 @@ func _junction_turn(vehicle: Dictionary) -> bool:
 func can_build_roundabout(point: Vector2i) -> String:
  var p: Array = [point.x,point.y]
  if roundabouts.has(_junction_key(point)): return "Ya existe una rotonda aquí."
- if world.terrain(point) in ["agua","roca"]: return "La rotonda necesita terreno firme."
+ if world.terrain(point) in ["agua","roca","montaña","marisma"]: return "La rotonda necesita terreno firme."
  for city: Dictionary in cities:
   if int(city.x)==point.x and int(city.y)==point.y: return "No se puede construir sobre una ciudad."
  var compatible: int = 0

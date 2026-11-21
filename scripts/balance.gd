@@ -10,6 +10,19 @@ const ROADS: Array[Dictionary] = [
  {"name":"Autovía", "color":Color("547eb3"), "width":2.5, "speed":120.0, "capacity":6.0, "cost":6.8},
  {"name":"Autopista", "color":Color("8469a6"), "width":2.8, "speed":120.0, "capacity":8.0, "cost":9.0}
 ]
+
+static func terrain_restriction(road_type: int, terrain: String) -> String:
+ if terrain == "agua" or road_type <= 1: return ""
+ if road_type >= 4 and terrain not in ["pradera","llanura"]:
+  return "%s: solo se construye en terreno llano; no admite %s." % [ROADS[road_type].name,WorldGenerator.terrain_name(terrain)]
+ if terrain == "marisma":
+  return "%s: el terreno de marisma no admite esta categoría de vía." % ROADS[road_type].name
+ return ""
+
+static func terrain_hint(road_type: int) -> String:
+ if road_type <= 1: return "Apta para todos los terrenos; el agua requiere puente."
+ if road_type <= 3: return "Apta para montañas, bosques y colinas; no para marismas. El agua requiere puente."
+ return "Solo en terreno llano (pradera o llanura); el agua requiere puente."
 # Short route identifiers, indexed identically to ROADS.
 const ROAD_PREFIXES: Array[String] = ["C","CR","S","P","VR","A","AP"]
 const INITIAL_MONEY: float = 12000.0

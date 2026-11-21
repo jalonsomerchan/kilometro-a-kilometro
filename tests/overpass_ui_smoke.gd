@@ -19,14 +19,9 @@ func run_test() -> void:
  game.cursor = Vector2i(10,0)
  game.drawing = true
  game._refresh_proposal()
- game._game_menu()
- var toggle: Button
- for child: Node in game.column.get_children():
-  if child is Button and child.text.begins_with("Paso sobre carreteras:"): toggle = child
- assert(toggle != null)
- toggle.pressed.emit()
- assert(game.elevated_crossings and game.proposal.has("overpasses") and game.proposal.overpasses.size()==1)
- game._close_panel()
+ game.tool = "Construir puente"
+ game._refresh_proposal()
+ assert(game.proposal.has("overpasses") and game.proposal.overpasses.size()==1)
  game._accept_map()
  assert(game.screen=="review")
  var details: String = ""

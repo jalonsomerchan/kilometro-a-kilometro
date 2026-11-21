@@ -39,7 +39,7 @@ static func _affect(state: GameState, event: Dictionary, road: Dictionary) -> vo
  var closed: bool = kind in ["fire","flood","landslide"]
  if kind == "snow":
   for p: Array in road.path:
-   if state.world.terrain(Vector2i(int(p[0]),int(p[1]))) == "colina" and int(road.id) % 3 == 0: closed = true; break
+   if state.world.terrain(Vector2i(int(p[0]),int(p[1]))) in ["colina","montaña","roca"] and int(road.id) % 3 == 0: closed = true; break
  var damage: float = 8.0 if kind == "fire" else (4.0 if kind == "flood" else 0.0)
  var entry: Dictionary = {"road_id":int(road.id),"closed":closed,"snow":kind == "snow","damage":damage,"cleared":false}
  event.affected.append(entry)

@@ -2,16 +2,27 @@ class_name RoadPlanner
 extends RefCounted
 
 # A bounded A* keeps proposals responsive; each state retains its incoming direction.
-static func plan(world: WorldGenerator, start: Vector2i, finish: Vector2i) -> Dictionary:
+static func plan(world: WorldGenerator, start: Vector2i, finish: Vector2i, road_type: int = -1) -> Dictionary:
  if start.distance_to(finish) > 110.0: return {"error":"Destino demasiado lejano; construye por etapas."}
+ # No route can make an incompatible endpoint valid. Return the restriction
+ # immediately instead of exploring the whole search area on the main thread.
+ if road_type >= 0:
+  for point: Vector2i in [start, finish]:
+   var terrain: String = world.terrain(point)
+   var restriction: String = Balance.terrain_restriction(road_type,terrain)
+   if not restriction.is_empty():
+    return {"error":restriction, "conflict_terrain":terrain}
  var open: Array[Vector2i] = [start]
  var came: Dictionary = {}
  var cost: Dictionary = {start: 0.0}
  var score: Dictionary = {start: start.distance_to(finish)}
  var dirs: Array[Vector2i] = [Vector2i(1,0),Vector2i(-1,0),Vector2i(0,1),Vector2i(0,-1),Vector2i(1,1),Vector2i(1,-1),Vector2i(-1,1),Vector2i(-1,-1)]
  var iterations: int = 0
+ var deadline: int = Time.get_ticks_msec() + 50
  while not open.is_empty() and iterations < 16000:
   iterations += 1
+  if iterations % 32 == 0 and Time.get_ticks_msec() >= deadline:
+   return {"error":"No se encuentra una ruta rápidamente. Acerca el destino o cambia el tipo de carretera."}
   var best: int = 0
   for i: int in range(1, open.size()):
    if float(score[open[i]]) < float(score[open[best]]): best = i
@@ -25,12 +36,16 @@ static func plan(world: WorldGenerator, start: Vector2i, finish: Vector2i) -> Di
   for d: Vector2i in dirs:
    var next: Vector2i = current + d
    if next.distance_to(start) > 125.0: continue
-   if d.x != 0 and d.y != 0 and world.terrain(current + Vector2i(d.x,0)) == "roca" and world.terrain(current + Vector2i(0,d.y)) == "roca": continue
+   if d.x != 0 and d.y != 0 and _is_mountain(world.terrain(current + Vector2i(d.x,0))) and _is_mountain(world.terrain(current + Vector2i(0,d.y))): continue
    var terrain: String = world.terrain(next)
+   if road_type >= 0 and not Balance.terrain_restriction(road_type,terrain).is_empty(): continue
    var weight: float = 1.0
    if terrain == "bosque": weight = 1.5
    if terrain == "colina": weight = 1.7
-   if terrain == "roca": weight = 3.5
+   if _is_mountain(terrain): weight = 3.5
+   if terrain == "marisma": weight = 2.4
+   if terrain == "desierto": weight = 1.2
+   if terrain == "llanura": weight = 0.9
    if terrain == "agua": weight = 3.0
    var turn: float = 0.0
    if came.has(current) and current - Vector2i(came[current]) != d: turn = 0.18
@@ -40,17 +55,34 @@ static func plan(world: WorldGenerator, start: Vector2i, finish: Vector2i) -> Di
     cost[next] = next_cost
     score[next] = next_cost + next.distance_to(finish)
     if not open.has(next): open.append(next)
+ if road_type >= 0: return plan(world,start,finish,-1)
  return {"error":"No se ha encontrado un trazado viable."}
 
-static func plan_via(world: WorldGenerator, start: Vector2i, via: Vector2i, finish: Vector2i) -> Dictionary:
- var first: Dictionary = plan(world,start,via)
+static func plan_via(world: WorldGenerator, start: Vector2i, via: Vector2i, finish: Vector2i, road_type: int = -1) -> Dictionary:
+ var first: Dictionary = plan(world,start,via,road_type)
  if first.has("error"): return first
- var second: Dictionary = plan(world,via,finish)
+ var second: Dictionary = plan(world,via,finish,road_type)
  if second.has("error"): return second
  var path: Array[Vector2i] = []
  for point: Vector2i in first.path: path.append(point)
  for i: int in range(1,second.path.size()): path.append(second.path[i])
  return _describe(world,path)
+
+static func validate_terrain(world: WorldGenerator, proposal: Dictionary, road_type: int) -> Dictionary:
+ if proposal.has("error"): return proposal
+ for index: int in range(proposal.path.size()):
+  var point: Vector2i = proposal.path[index]
+  var terrain: String = world.terrain(point)
+  var restriction: String = Balance.terrain_restriction(road_type,terrain)
+  if not restriction.is_empty():
+   proposal["error"] = restriction
+   proposal["conflict_index"] = index
+   proposal["conflict_terrain"] = terrain
+   return proposal
+ return proposal
+
+static func _is_mountain(terrain: String) -> bool:
+ return terrain in ["montaña","roca"]
 
 static func _describe(world: WorldGenerator, path: Array[Vector2i]) -> Dictionary:
  var length: float = 0.0
@@ -68,7 +100,9 @@ static func _describe(world: WorldGenerator, path: Array[Vector2i]) -> Dictionar
   else: run = 0
   if t == "bosque": terrain_cost += 25.0
   if t == "colina": terrain_cost += 45.0
-  if t == "roca": terrain_cost += 150.0
+  if _is_mountain(t): terrain_cost += 150.0
+  if t == "marisma": terrain_cost += 90.0
+  if t == "desierto": terrain_cost += 20.0
  if world.terrain(path[0]) == "agua" or world.terrain(path[-1]) == "agua": return {"error":"El puente necesita desembarcos en tierra."}
  if max_water > Balance.MAX_BRIDGE: return {"error":"El puente supera la longitud máxima."}
  return {"path":path, "length":length, "terrain_cost":terrain_cost, "water":water}
@@ -94,7 +128,7 @@ static func add_crossings(world: WorldGenerator, proposal: Dictionary, roads: Ar
    if elevated and RoadNetwork._level(road,index) != 0:
     return _crossing_error(proposal,"Ya hay una vía elevada en (%d, %d); no hay altura libre." % [point.x,point.y],i)
   if not elevated and require_grade:
-   return _crossing_error(proposal,"La categoría exige un paso elevado en (%d, %d). Actívalo en el menú." % [point.x,point.y],i)
+   return _crossing_error(proposal,"La categoría exige un paso elevado en (%d, %d). Usa la herramienta Construir puente." % [point.x,point.y],i)
   if elevated:
    var reason: String = _validate_overpass(world,path,roads,i,i)
    if not reason.is_empty(): return _crossing_error(proposal,reason,i)
@@ -138,7 +172,7 @@ static func _validate_overpass(world: WorldGenerator, path: Array, roads: Array,
  var start: Vector2i = path[first-1]
  var finish: Vector2i = path[last+1]
  for ramp: Vector2i in [start,finish]:
-  if world.terrain(ramp) in ["agua","roca"]: return "Las rampas necesitan apoyos en tierra firme."
+  if world.terrain(ramp) in ["agua","roca","montaña"]: return "Las rampas necesitan apoyos en tierra firme."
   for road: Dictionary in roads:
    if road.path.has([ramp.x,ramp.y]): return "Una carretera ocupa una rampa; ajusta el trazado."
  var incoming: Vector2 = Vector2(path[first]-path[first-1]).normalized()

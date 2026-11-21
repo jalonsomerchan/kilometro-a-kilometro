@@ -14,7 +14,7 @@ func run_test() -> void:
  right.pressed = true
  assert(InputMap.event_is_action(right,"tool_action"))
  game._unhandled_input(right)
- assert(game.tool=="Señalar" and game.selected_type==0)
+ assert(game.tool=="Construir puente" and game.selected_type==0)
  var left := InputEventJoypadButton.new()
  left.button_index = JOY_BUTTON_PADDLE4
  left.pressed = true

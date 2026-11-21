@@ -3,6 +3,7 @@ extends RefCounted
 
 var seed_value: int = 1
 var noise: FastNoiseLite
+var moisture_noise: FastNoiseLite
 
 func _init(value: int = 1) -> void:
  seed_value = value
@@ -10,6 +11,10 @@ func _init(value: int = 1) -> void:
  noise.seed = value
  noise.frequency = 0.025
  noise.fractal_octaves = 3
+ moisture_noise = FastNoiseLite.new()
+ moisture_noise.seed = value + 104729
+ moisture_noise.frequency = 0.047
+ moisture_noise.fractal_octaves = 2
 
 func terrain(p: Vector2i) -> String:
  if p in [Vector2i(2,4), Vector2i(10,5), Vector2i(27,7), Vector2i(11,24)]: return "pradera"
@@ -18,11 +23,18 @@ func terrain(p: Vector2i) -> String:
  if absf(float(p.x) - river_x) < 1.5:
   return "agua"
  var n: float = noise.get_noise_2d(float(p.x), float(p.y))
+ var moisture: float = moisture_noise.get_noise_2d(float(p.x), float(p.y))
  if n < -0.48: return "agua"
- if n < -0.20: return "bosque"
- if n > 0.53: return "roca"
+ if n > 0.53: return "montaña"
  if n > 0.27: return "colina"
+ if n < -0.20: return "bosque"
+ if n > -0.10 and n < 0.12 and moisture < -0.30: return "marisma"
+ if n > -0.10 and n < 0.22 and moisture > 0.42: return "desierto"
+ if n > 0.10 and moisture > 0.0: return "llanura"
  return "pradera"
+
+static func terrain_name(kind: String) -> String:
+ return {"pradera":"pradera","llanura":"llanura","bosque":"bosque","colina":"colina","montaña":"montaña","roca":"montaña","marisma":"marisma","desierto":"desierto","agua":"agua"}.get(kind,kind)
 
 func cities_for_chunk(chunk: Vector2i) -> Array[Dictionary]:
  var result: Array[Dictionary] = []
@@ -36,7 +48,7 @@ func cities_for_chunk(chunk: Vector2i) -> Array[Dictionary]:
  if h % 3 != 0: return result
  # Candidate constrained to the interior ensures at least 8 cells between chunks.
  var p := chunk * 32 + Vector2i(5 + h % 22, 5 + (h / 31) % 22)
- if p.distance_to(Vector2i(2, 4)) < 15.0 or terrain(p) == "agua" or terrain(p) == "roca": return result
+ if p.distance_to(Vector2i(2, 4)) < 15.0 or terrain(p) in ["agua","montaña","marisma"]: return result
  var names: Array[String] = ["Alameda", "Castañar", "Mirador", "Pinar", "Fuente", "Ladera", "Arroyo", "Vega"]
  var population: int = 800 + (h / 97) % 13000
  result.append(_city(names[h % names.size()] + " " + str(h % 1000), p, population))

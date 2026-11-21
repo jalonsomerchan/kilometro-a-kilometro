@@ -27,6 +27,8 @@ El terreno se calcula con coordenadas globales y semilla; las ciudades aparecen 
 | Ir al tramo del aviso visible | F6 | R4 |
 | Descartar aviso visible | F7 | L4 |
 
+El cursor se mueve una casilla por pulsación o inclinación; al mantener la dirección, espera un instante y repite de forma gradual. La cámara sigue al cursor solo cerca de los bordes. En Opciones → Velocidad del cursor puedes elegir precisa, normal o rápida. La cruceta y el stick también repiten en los menús.
+
 En el menú se puede elegir la velocidad y las herramientas. El estado de las obras se muestra en el inspector. Las reparaciones y mejoras cierran temporalmente el tramo y tienen presupuesto de confirmación.
 
 ## Estado y limitaciones
@@ -113,6 +115,9 @@ godot --headless --path . --script res://tests/fire_spread_smoke.gd
 godot --headless --path . --script res://tests/settings_smoke.gd
 godot --headless --path . --script res://tests/navigation_events_ui_smoke.gd
 godot --headless --path . --script res://tests/controller_combo_smoke.gd
+godot --headless --path . --script res://tests/cursor_motion_smoke.gd
+godot --headless --path . --script res://tests/cursor_input_integration_smoke.gd
+godot --headless --path . --script res://tests/menu_repeat_smoke.gd
 godot --headless --path . --script res://tests/notice_smoke.gd
 ```
 
