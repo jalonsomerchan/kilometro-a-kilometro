@@ -31,13 +31,31 @@ En el menú se puede elegir la velocidad y las herramientas. El estado de las ob
 
 ## Estado y limitaciones
 
-Esta entrega es un **prototipo vertical**, no una versión completa para Steam. Los vehículos pueden atravesar varios tramos y cruzar entre carreteras a nivel; las rutas usan tiempo estimado y evitan obras. En el menú de partida, «Cruces» permite escoger un paso elevado para una obra nueva; se comprueban rampas y la vía inferior queda independiente. Las rutas priorizan el tiempo estimado según velocidad, conservación, nieve, ocupación y STOP. Los vehículos en camino pueden reevaluar en cruces a nivel, con un límite de cálculos por paso. Aún no hay ramales de enlace para conectar niveles ni una simulación detallada de colas en cruces. Para limitar el coste de cálculo, la demanda considera las primeras 24 ciudades conocidas y hasta seis destinos cercanos por ciudad, con un máximo de 300 vehículos simultáneos. Los puentes de agua tienen conservación y reparación propias, aunque su cierre afecta al tramo completo. Las obras se pueden iniciar o programar para el periodo de menor demanda; se revisa el aislamiento antes de iniciarlas. Hay mantenimiento preventivo y señales STOP y ceda por entrada, con una coordinación básica en el cruce. Las autopistas admiten peaje; hay contratos de conexión, un préstamo limitado y desbloqueos por viajes, ciudades conectadas y fiabilidad. Quedan pendientes otros tipos de contrato y una elección de ruta sensible al precio del peaje. Hay eventos regionales de nevada, incendio, crecida, desprendimiento y feria; la simulación de su propagación y gravedad sigue siendo simplificada. Las vistas de tráfico, conservación y demanda muestran información y leyendas. El trazado admite un punto intermedio, pero sigue siendo síncrono y está limitado a 110 casillas por etapa. Las curvas se suavizan dentro de las casillas ocupadas, pero todavía no se validan radios mínimos ni el ancho completo frente al terreno. Los ajustes de pantalla, cuadrícula, escala y teclado se guardan por separado; todavía no hay ajustes de música o efectos porque no hay audio. No hay música ni efectos. La generación de ciudades no comprueba todas las conexiones entre bloques ni la viabilidad global. El modo libre comparte la zona inicial preparada. Las obras dejan salir a los vehículos que ya están en el tramo; los vehículos que encuentran un cierre al cambiar de tramo buscan otra ruta. El análisis de aislamiento comprueba como máximo las primeras doce ciudades conocidas. Estas limitaciones deben resolverse antes de distribuir el juego.
+Esta entrega es un **prototipo vertical**, no una versión completa para Steam. Los vehículos pueden atravesar varios tramos y cruzar entre carreteras a nivel; las rutas usan tiempo estimado y evitan obras. En el menú de partida, «Paso sobre carreteras» permite escoger un paso elevado para una obra nueva; se comprueban las rampas y la vía inferior queda independiente. Las rutas priorizan el tiempo estimado según velocidad, conservación, nieve, ocupación y STOP. Los vehículos en camino pueden reevaluar en cruces a nivel, con un límite de cálculos por paso. Los cruces tienen colas y capacidad limitada; las señales y las rotondas mejoran el paso. La rotonda se simula como un nodo de circulación compartido, sin modelar físicamente cada carril circular. Aún no hay ramales de enlace para conectar niveles. Para limitar el coste de cálculo, la demanda considera las primeras 24 ciudades conocidas y hasta seis destinos cercanos por ciudad, con un máximo de 300 vehículos simultáneos. Los puentes de agua tienen conservación y reparación propias, aunque su cierre afecta al tramo completo. Las obras se pueden iniciar o programar para el periodo de menor demanda; se revisa el aislamiento antes de iniciarlas. Hay mantenimiento preventivo y señales STOP y ceda por entrada, con una coordinación básica en el cruce. Las autopistas admiten peaje; hay contratos de conexión, un préstamo limitado y desbloqueos por viajes, ciudades conectadas y fiabilidad. Quedan pendientes otros tipos de contrato y una elección de ruta sensible al precio del peaje. Hay eventos regionales de nevada, incendio, crecida, desprendimiento y feria; la simulación de su propagación y gravedad sigue siendo simplificada. Las vistas de tráfico, conservación y demanda muestran información y leyendas. El trazado admite un punto intermedio, pero sigue siendo síncrono y está limitado a 110 casillas por etapa. Las curvas se suavizan dentro de las casillas ocupadas, pero todavía no se validan radios mínimos ni el ancho completo frente al terreno. Los ajustes de pantalla, cuadrícula, escala y teclado se guardan por separado; todavía no hay ajustes de música o efectos porque no hay audio. No hay música ni efectos. La generación de ciudades no comprueba todas las conexiones entre bloques ni la viabilidad global. El modo libre comparte la zona inicial preparada. Las obras dejan salir a los vehículos que ya están en el tramo; los vehículos que encuentran un cierre al cambiar de tramo buscan otra ruta. El análisis de aislamiento comprueba como máximo las primeras doce ciudades conocidas. Estas limitaciones deben resolverse antes de distribuir el juego.
+
+## Nombres de los tramos
+
+Cada tramo recibe un identificador pequeño junto a la vía y en su inspector: C para caminos, CR para carriles rurales, S para secundarias, P para principales, VR para vías rápidas, A para autovías y AP para autopistas. La numeración es independiente por categoría y se conserva al guardar; al cambiar de categoría se asigna el siguiente número de la nueva categoría. Las partidas anteriores reciben identificadores al cargarse.
+
+## Puentes sobre carreteras
+
+1. Con la herramienta Construir, abre el menú con **M** o **X** y cambia «Paso sobre carreteras» a **elevado**. Vuelve al mapa.
+2. Marca origen y destino a ambos lados de la carretera existente. La vista previa resalta el tablero y las rampas; un marcador rojo indica un conflicto si falta espacio o terreno firme.
+3. Revisa coste, longitud de las rampas y duración, y confirma la obra. La carretera inferior permanece abierta. El paso y la vía inferior se cruzan a distinta altura y no permiten cambiar de una a otra sin un enlace.
+
+Se detectan cruces en una casilla y cruces entre diagonales. Se puede combinar un puente sobre agua y un paso sobre carretera en una obra si las rampas son viables. Todavía no se pueden construir enlaces entre niveles ni reparar el paso elevado como estructura independiente.
+
+## Cerrar y abrir una carretera
+
+Abre el menú con **M** o **X** y selecciona **Cerrar/Abrir**; también puedes llegar a esa herramienta con Tab, F8, R5 o L5. Sitúa el cursor sobre la carretera y pulsa **Intro / A**. La pantalla muestra las conexiones que podrían quedar aisladas: puedes volver para preparar un desvío o confirmar el cierre. El cierre afecta al tramo completo y no tiene coste.
+
+Para reabrirla, vuelve a seleccionar el tramo con la misma herramienta y confirma la apertura. También puedes cerrar o abrir desde el inspector (**I / Y**). Si hay varios tramos en una casilla, usa «Siguiente elemento» en el inspector para escoger el que quieres. Los vehículos ya presentes pueden salir; los nuevos buscan otra ruta. Quitar un cierre manual no anula una obra, un evento ni un cierre por deterioro.
 
 ## Obras, señales y punto intermedio
 
 Selecciona **Reparar** o **Mejorar** en el menú, sitúa el cursor sobre una carretera y pulsa confirmar. La ficha muestra el coste y los accesos que quedarían aislados. Puedes iniciar, programar para la última cuarta parte del día o preparar un desvío conservando la obra como borrador. La obra programada se bloquea si empeora el aislamiento o faltan fondos. Desde Reparar se activa el mantenimiento preventivo; al seleccionar una casilla de agua de un puente se ofrece también su reparación. El puente cierra todo su tramo durante la obra.
 
-En un cruce a nivel, selecciona **Señalar** y elige STOP o ceda para el sentido de llegada indicado; el vehículo espera según la señal y la ocupación del cruce. Es una gestión simplificada, no una simulación completa de prioridades y colas.
+En un cruce a nivel, selecciona **Señalar** y elige STOP o ceda para el sentido de llegada indicado; los vehículos forman una cola y esperan turno. También puedes elegir «Construir rotonda»: cuesta 1.400 €, tarda 12 segundos de simulación y aumenta la capacidad al terminar. Las señales quedan en reserva y vuelven a actuar si retiras la rotonda. El inspector muestra vehículos esperando y tiempo entre pasos. La prioridad y el paso por la rotonda son modelos simplificados, no una simulación física de carriles.
 
 Para fijar un punto intermedio, marca el origen al construir, mueve el cursor al punto deseado, abre M y elige «Fijar punto intermedio aquí». Continúa hasta el destino.
 
@@ -53,7 +71,7 @@ El inspector de una autopista permite fijar el peaje; se acumula al entrar y se 
 
 Las ciudades generan demanda según su población y distancia; el balance distingue viajes potenciales, iniciados, completados, no atendidos e interrumpidos. Las vías tienen una capacidad que depende de su longitud, categoría, conservación y nieve. Una ocupación alta reduce la velocidad y puede hacer que se elija una alternativa más rápida, aunque sea más larga. Los viajes en curso revisan la ruta al alcanzar un cruce, como máximo cada diez segundos de simulación y con un límite de cálculos por paso. La vista «tráfico» y el inspector muestran el estado y la ocupación.
 
-Por cada unidad completa de ocupación que supere la capacidad se cargan 2,5 € por segundo de simulación, proporcionalmente al exceso. Al completar un viaje se cobran 4 € por cada segundo que exceda 1,6 veces la distancia directa (con un mínimo de 3 segundos), hasta el 80 % del pago de ese viaje. La distancia se mide en casillas y el tiempo en segundos de simulación; las penalizaciones acumuladas y diarias están en «Balance y tráfico». Los parámetros están en `scripts/balance.gd`.
+Por cada unidad completa de ocupación que supere la capacidad se cargan 2,5 € por segundo de simulación, proporcionalmente al exceso. En cada cruce también se cobran 0,6 € por segundo por cada vehículo que espere a partir del tercero; esta cantidad figura incluida en las penalizaciones por atasco. Al completar un viaje se cobran 4 € por cada segundo que exceda 1,6 veces la distancia directa (con un mínimo de 3 segundos), hasta el 80 % del pago de ese viaje. La distancia se mide en casillas y el tiempo en segundos de simulación; las penalizaciones acumuladas y diarias están en «Balance y tráfico». Los parámetros están en `scripts/balance.gd`.
 
 ## Eventos y opciones
 
@@ -68,9 +86,15 @@ Con Godot instalado, desde la carpeta del proyecto:
 ```sh
 godot --headless --path . --editor --quit
 godot --headless --path . --script res://tests/smoke.gd
+godot --headless --path . --script res://tests/road_names_smoke.gd
+godot --headless --path . --script res://tests/manual_closure_smoke.gd
+godot --headless --path . --script res://tests/manual_closure_ui_smoke.gd
 godot --headless --path . --script res://tests/ui_smoke.gd
 godot --headless --path . --script res://tests/zoom_smoke.gd
 godot --headless --path . --script res://tests/network_smoke.gd
+godot --headless --path . --script res://tests/junction_traffic_smoke.gd
+godot --headless --path . --script res://tests/junction_fairness_smoke.gd
+godot --headless --path . --script res://tests/roundabout_ui_smoke.gd
 godot --headless --path . --script res://tests/journey_smoke.gd
 godot --headless --path . --script res://tests/economy_smoke.gd
 godot --headless --path . --script res://tests/economy_ui_smoke.gd
@@ -81,6 +105,8 @@ godot --headless --path . --script res://tests/geometry_smoke.gd
 godot --headless --path . --script res://tests/works_signals_smoke.gd
 godot --headless --path . --script res://tests/bridge_works_smoke.gd
 godot --headless --path . --script res://tests/overpass_smoke.gd
+godot --headless --path . --script res://tests/overpass_full_smoke.gd
+godot --headless --path . --script res://tests/overpass_ui_smoke.gd
 godot --headless --path . --script res://tests/events_smoke.gd
 godot --headless --path . --script res://tests/regional_events_smoke.gd
 godot --headless --path . --script res://tests/fire_spread_smoke.gd

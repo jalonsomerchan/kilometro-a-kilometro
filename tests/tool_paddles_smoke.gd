@@ -22,7 +22,7 @@ func run_test() -> void:
  game._unhandled_input(left)
  assert(game.tool=="Construir" and game.selected_type==0)
  game._unhandled_input(left)
- assert(game.tool=="Mejorar")
+ assert(game.tool=="Cerrar/Abrir")
  var previous := InputEventKey.new()
  previous.physical_keycode = KEY_F8
  previous.pressed = true

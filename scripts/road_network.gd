@@ -81,14 +81,28 @@ static func route(roads: Array, origin: Vector2i, destination: Vector2i, exclude
  return result
 
 static func _level(road: Dictionary, index: int) -> int:
- if road.get("raised_indices", []).has(index): return 1
+ for raised: Variant in road.get("raised_indices", []):
+  if int(raised) == index: return 1
  return int(road.get("level",0))
 
 static func road_closed(road: Dictionary) -> bool:
+ if bool(road.get("manual_closed",false)): return true
  if float(road.work) > 0.0 or float(road.condition) < 10.0 or int(road.get("event_closures",0)) > 0: return true
  for bridge: Dictionary in road.get("bridges",[]):
   if float(bridge.condition) < 10.0: return true
  return false
+
+static func closure_reasons(road: Dictionary, include_manual: bool = true) -> Array[String]:
+ var reasons: Array[String] = []
+ if include_manual and bool(road.get("manual_closed",false)): reasons.append("cierre manual")
+ if float(road.get("work",0.0)) > 0.0: reasons.append("obras (%.0f s restantes)" % float(road.work))
+ if int(road.get("event_closures",0)) > 0: reasons.append("evento activo")
+ if float(road.get("condition",100.0)) < 10.0: reasons.append("conservación crítica")
+ for bridge: Dictionary in road.get("bridges",[]):
+  if float(bridge.condition) < 10.0:
+   reasons.append("puente en estado crítico")
+   break
+ return reasons
 
 static func _signal_delay(road: Dictionary, index: int, direction: int, roundabouts: Dictionary = {}) -> float:
  var point: Array = road.path[index]

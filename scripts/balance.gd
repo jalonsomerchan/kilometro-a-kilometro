@@ -10,6 +10,8 @@ const ROADS: Array[Dictionary] = [
  {"name":"Autovía", "color":Color("547eb3"), "width":2.5, "speed":120.0, "capacity":6.0, "cost":6.8},
  {"name":"Autopista", "color":Color("8469a6"), "width":2.8, "speed":120.0, "capacity":8.0, "cost":9.0}
 ]
+# Short route identifiers, indexed identically to ROADS.
+const ROAD_PREFIXES: Array[String] = ["C","CR","S","P","VR","A","AP"]
 const INITIAL_MONEY: float = 12000.0
 const CELL_COST: float = 90.0
 const BRIDGE_COST: float = 180.0
@@ -47,3 +49,6 @@ const JUNCTION_ROUNDABOUT_HEADWAY: float = 0.45
 const JUNCTION_QUEUE_FINE: float = 0.6
 const ROUNDABOUT_COST: float = 1400.0
 const ROUNDABOUT_WORK_SECONDS: float = 12.0
+
+const OVERPASS_COST: float = 650.0
+const OVERPASS_WORK_SECONDS: float = 3.0

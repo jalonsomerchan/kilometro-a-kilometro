@@ -15,6 +15,7 @@ var roads: Array = []
 var vehicles: Array = []
 var world: WorldGenerator
 var next_id: int = 1
+var road_number_counters: Dictionary = {}
 var spawn_clock: float = 0.0
 var cursor_x: int = 2
 var cursor_y: int = 4
@@ -76,13 +77,34 @@ func discover(p: Vector2i) -> void:
 func price(proposal: Dictionary, road_type: int) -> float:
  return ceil(float(proposal.length) * Balance.CELL_COST * float(Balance.ROADS[road_type].cost) + float(proposal.terrain_cost) + float(proposal.water) * Balance.BRIDGE_COST + float(proposal.get("overpass_cost",0.0)))
 
+func construction_time(proposal: Dictionary) -> float:
+ return maxf(4.0,float(proposal.length)*0.7) + float(proposal.get("overpasses",[]).size())*Balance.OVERPASS_WORK_SECONDS
+
+func _allocate_road_name(road_type: int) -> String:
+ var prefix: String = Balance.ROAD_PREFIXES[road_type]
+ var number: int = int(road_number_counters.get(prefix,0))+1
+ road_number_counters[prefix] = number
+ return prefix + str(number)
+
+func _restore_road_names() -> void:
+ # First reserve existing numbers, then name old save files without reusing them.
+ for road: Dictionary in roads:
+  var prefix: String = Balance.ROAD_PREFIXES[int(road.type)]
+  var label: String = str(road.get("road_name",""))
+  if label.begins_with(prefix):
+   var suffix: String = label.substr(prefix.length())
+   if suffix.is_valid_int() and int(suffix) > 0:
+    road_number_counters[prefix] = maxi(int(road_number_counters.get(prefix,0)),int(suffix))
+ for road: Dictionary in roads:
+  if str(road.get("road_name","")).is_empty(): road.road_name = _allocate_road_name(int(road.type))
+
 func build(proposal: Dictionary, road_type: int) -> void:
  var amount: float = price(proposal, road_type)
  money -= amount
  expenses += amount
  var points: Array = []
  for p: Vector2i in proposal.path: points.append([p.x,p.y])
- roads.append({"id":next_id, "path":points, "type":road_type, "length":proposal.length, "water":proposal.water, "condition":100.0, "work":maxf(4.0, float(proposal.length) * 0.7), "speed_limit":Balance.ROADS[road_type].speed, "trips":0, "raised_indices":proposal.get("raised_indices",[]).duplicate(), "crossings":proposal.get("crossings",[]).duplicate(true)})
+ roads.append({"id":next_id, "road_name":_allocate_road_name(road_type), "path":points, "type":road_type, "length":proposal.length, "water":proposal.water, "condition":100.0, "work":construction_time(proposal), "speed_limit":Balance.ROADS[road_type].speed, "trips":0, "raised_indices":proposal.get("raised_indices",[]).duplicate(), "crossings":proposal.get("crossings",[]).duplicate(true), "overpasses":proposal.get("overpasses",[]).duplicate(true)})
  roads[-1]["bridges"] = _create_bridges(roads[-1])
  next_id += 1
  route_cache.clear()
@@ -150,7 +172,9 @@ func step(dt: float) -> void:
      if bridge_index >= 0 and bridge_index < road.get("bridges",[]).size(): road.bridges[bridge_index].condition = 100.0
      road.erase("pending_bridge")
     if road.has("pending_type"):
-     road.type = road.pending_type
+     var new_type: int = int(road.pending_type)
+     if new_type != int(road.type): road.road_name = _allocate_road_name(new_type)
+     road.type = new_type
      road.speed_limit = Balance.ROADS[int(road.type)].speed
      for bridge: Dictionary in road.get("bridges",[]):
       if int(road.type) > int(bridge.category):
@@ -494,6 +518,14 @@ func build_roundabout(point: Vector2i) -> bool:
  route_cache.clear()
  return true
 
+func set_manual_closed(road_id: int, closed: bool) -> bool:
+ var road: Dictionary = _road_by_id(road_id)
+ if road.is_empty(): return false
+ road.manual_closed = closed
+ # Cached routes must never send new traffic into a closed road.
+ route_cache.clear()
+ return true
+
 func remove_road(road: Dictionary) -> void:
  roads.erase(road)
  route_cache.clear()
@@ -714,7 +746,7 @@ func _road_by_id(id: int) -> Dictionary:
  return {}
 
 func data() -> Dictionary:
- return {"version":1,"generator_version":1,"name":game_name,"seed":seed_value,"guided":guided,"money":money,"elapsed":elapsed,"completed":completed,"income":income,"expenses":expenses,"cities":cities,"chunks":chunks,"roads":roads,"vehicles":vehicles,"next_id":next_id,"spawn_clock":spawn_clock,"cursor_x":cursor_x,"cursor_y":cursor_y,"interrupted":interrupted,"events":events,"forecasts":forecasts,"next_event":next_event,"latest_notice":latest_notice,"notice_road":notice_road,"notice_point":notice_point,"demand_credit":demand_credit,"potential_demand":potential_demand,"started_trips":started_trips,"unmet_demand":unmet_demand,"congestion_fines":congestion_fines,"delay_fines":delay_fines,"today_penalties":today_penalties,"yesterday_penalties":yesterday_penalties,"late_trips":late_trips,"route_refresh_clock":route_refresh_clock,"junction_busy_until":junction_busy_until,"roundabouts":roundabouts,"junction_queue_serial":junction_queue_serial,"junction_fines":junction_fines,"income_day_start":income_day_start,"expenses_day_start":expenses_day_start,"yesterday_income":yesterday_income,"yesterday_expenses":yesterday_expenses,"loan_taken":loan_taken,"loan_remaining":loan_remaining,"loan_overdue":loan_overdue,"contract":contract,"contracts_completed":contracts_completed,"toll_income":toll_income,"contract_income":contract_income,"contract_history":contract_history,"next_contract_check":next_contract_check,"saved_at":Time.get_datetime_string_from_system()}
+ return {"version":1,"generator_version":1,"name":game_name,"seed":seed_value,"guided":guided,"money":money,"elapsed":elapsed,"completed":completed,"income":income,"expenses":expenses,"cities":cities,"chunks":chunks,"roads":roads,"vehicles":vehicles,"next_id":next_id,"road_number_counters":road_number_counters,"spawn_clock":spawn_clock,"cursor_x":cursor_x,"cursor_y":cursor_y,"interrupted":interrupted,"events":events,"forecasts":forecasts,"next_event":next_event,"latest_notice":latest_notice,"notice_road":notice_road,"notice_point":notice_point,"demand_credit":demand_credit,"potential_demand":potential_demand,"started_trips":started_trips,"unmet_demand":unmet_demand,"congestion_fines":congestion_fines,"delay_fines":delay_fines,"today_penalties":today_penalties,"yesterday_penalties":yesterday_penalties,"late_trips":late_trips,"route_refresh_clock":route_refresh_clock,"junction_busy_until":junction_busy_until,"roundabouts":roundabouts,"junction_queue_serial":junction_queue_serial,"junction_fines":junction_fines,"income_day_start":income_day_start,"expenses_day_start":expenses_day_start,"yesterday_income":yesterday_income,"yesterday_expenses":yesterday_expenses,"loan_taken":loan_taken,"loan_remaining":loan_remaining,"loan_overdue":loan_overdue,"contract":contract,"contracts_completed":contracts_completed,"toll_income":toll_income,"contract_income":contract_income,"contract_history":contract_history,"next_contract_check":next_contract_check,"saved_at":Time.get_datetime_string_from_system()}
 
 static func from_data(d: Dictionary) -> GameState:
  var s := GameState.new(int(d.seed))
@@ -728,7 +760,17 @@ static func from_data(d: Dictionary) -> GameState:
  s.cities = d.cities
  s.chunks = d.chunks
  s.roads = d.roads
+ s.road_number_counters = d.get("road_number_counters",{})
+ s._restore_road_names()
  for road: Dictionary in s.roads:
+  # JSON numbers are floats in Godot; coordinate/index equality must remain
+  # identical after loading, especially where two levels cross.
+  var normalized_path: Array = []
+  for point: Array in road.path: normalized_path.append([int(point[0]),int(point[1])])
+  road.path = normalized_path
+  var normalized_raised: Array = []
+  for index: Variant in road.get("raised_indices",[]): normalized_raised.append(int(index))
+  road.raised_indices = normalized_raised
   if not road.has("bridges"): road.bridges = s._create_bridges(road)
  s.vehicles = d.vehicles
  s.next_id = int(d.next_id)
