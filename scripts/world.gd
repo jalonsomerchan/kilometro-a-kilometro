@@ -44,3 +44,8 @@ func cities_for_chunk(chunk: Vector2i) -> Array[Dictionary]:
 
 func _city(city_name: String, p: Vector2i, population: int) -> Dictionary:
  return {"name":city_name, "x":p.x, "y":p.y, "population":population, "completed":{}}
+
+static func city_size(population: int) -> String:
+ if population < 3000: return "Pequeña"
+ if population < 10000: return "Mediana"
+ return "Grande"

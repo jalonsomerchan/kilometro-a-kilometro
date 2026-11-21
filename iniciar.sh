@@ -1,9 +1,9 @@
 
 #!/bin/bash
 
-GAME_DIR="$HOME/Games/MiJuego"
+GAME_DIR="$HOME/Games/kilometro-a-kilometro"
 
-PY_URL="https://raw.githubusercontent.com/jalonsomerchan/Road-Tyccon/main/launcher.py"
+PY_URL="https://raw.githubusercontent.com/jalonsomerchan/kilometro-a-kilometro/main/launcher.py"
 
 mkdir -p "$GAME_DIR"
 cd "$GAME_DIR" || exit 1

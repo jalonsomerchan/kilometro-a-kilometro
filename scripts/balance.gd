@@ -18,7 +18,7 @@ const FIXED_STEP: float = 0.25
 
 # Traffic and penalties, expressed in simulation seconds and euros.
 const DEMAND_FACTOR: float = 0.12
-const DEMAND_MAX_PER_PAIR: float = 0.55
+const DEMAND_MAX_PER_PAIR: float = 1.5
 const DEMAND_MAX_CITIES: int = 24
 const DEMAND_DESTINATIONS: int = 6
 const TRAFFIC_MAX_VEHICLES: int = 300
@@ -31,3 +31,11 @@ const LATE_GRACE_MULTIPLIER: float = 1.6
 const LATE_FINE_PER_SECOND: float = 4.0
 const LATE_FINE_MAX_FARE: float = 0.8
 const DAY_SECONDS: float = 120.0
+
+# Progression and optional finance.
+const ROAD_UNLOCK_TRIPS: Array[int] = [0,0,10,30,60,100,160]
+const ROAD_UNLOCK_CITIES: Array[int] = [0,0,2,3,3,4,4]
+const ROAD_UNLOCK_RELIABILITY: Array[float] = [0.0,0.0,0.0,0.65,0.70,0.75,0.80]
+const LOAN_PRINCIPAL: float = 3000.0
+const LOAN_TOTAL: float = 3300.0
+const LOAN_DAILY_PAYMENT: float = 550.0
