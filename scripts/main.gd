@@ -379,6 +379,10 @@ func _cycle_tool() -> void:
  drawing = false
  _notify("Herramienta: " + tool)
 
+func _key_hint(action: String, default_label: String) -> String:
+ if settings.get("keys",{}).has(action): return OS.get_keycode_string(int(settings.keys[action]))
+ return default_label
+
 func _make_panel(heading: String, description: String, next_screen: String) -> void:
  screen = next_screen
  shoulder_left = false
@@ -415,7 +419,7 @@ func _make_panel(heading: String, description: String, next_screen: String) -> v
  title_label.add_theme_font_size_override("font_size",roundi(30*float(settings.get("ui_scale",1.0))))
  column.add_child(title_label)
  if not description.is_empty(): _label(description)
- _label("A aceptar · B volver" if last_device == "mando" else "Intro aceptar · Esc volver")
+ _label("A aceptar · B volver" if last_device == "mando" else "%s aceptar · %s volver" % [_key_hint("accept_action","Intro"),_key_hint("back_action","Esc")])
 
 func _label(value: String) -> void:
  var label := Label.new()
@@ -786,9 +790,12 @@ func _draw() -> void:
   var font := ThemeDB.fallback_font
   var city_name: String = city.name
   var city_details := "%s (%d hab.)" % [WorldGenerator.city_size(int(city.population)),city.population]
+  var label_scale: float = float(settings.get("ui_scale",1.0))
+  var name_size: int = roundi(16.0*label_scale)
+  var detail_size: int = roundi(12.0*label_scale)
   var details_y: float = pos.y-radius-5.0
-  draw_string(font,Vector2(pos.x-font.get_string_size(city_name,HORIZONTAL_ALIGNMENT_LEFT,-1,16).x/2.0,details_y-15.0),city_name,HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color("1a2c2c"))
-  draw_string(font,Vector2(pos.x-font.get_string_size(city_details,HORIZONTAL_ALIGNMENT_LEFT,-1,12).x/2.0,details_y),city_details,HORIZONTAL_ALIGNMENT_LEFT,-1,12,Color("1a2c2c"))
+  draw_string(font,Vector2(pos.x-font.get_string_size(city_name,HORIZONTAL_ALIGNMENT_LEFT,-1,name_size).x/2.0,details_y-15.0*label_scale),city_name,HORIZONTAL_ALIGNMENT_LEFT,-1,name_size,Color("1a2c2c"))
+  draw_string(font,Vector2(pos.x-font.get_string_size(city_details,HORIZONTAL_ALIGNMENT_LEFT,-1,detail_size).x/2.0,details_y),city_details,HORIZONTAL_ALIGNMENT_LEFT,-1,detail_size,Color("1a2c2c"))
  if state != null:
   for vehicle: Dictionary in state.vehicles: _draw_vehicle(vehicle,offset,cell)
   var cpos: Vector2 = offset+Vector2(cursor)*cell
@@ -962,28 +969,40 @@ func _draw_vehicle(vehicle: Dictionary, offset: Vector2, cell: float) -> void:
  var pos: Vector2 = RoadGeometry.point(path,int(index),fposmod(index,1.0),geometry_anchors)
  draw_circle(offset+(pos+Vector2(0.5,0.5))*cell,maxf(2.5,cell*0.1),Color("fff9df"))
 
+func _draw_fit(font: Font, position: Vector2, value: String, desired_size: int, available: float, color: Color) -> void:
+ var measured: float = font.get_string_size(value,HORIZONTAL_ALIGNMENT_LEFT,-1,desired_size).x
+ var actual: int = maxi(11,roundi(float(desired_size)*minf(1.0,available/maxf(1.0,measured))))
+ draw_string(font,position,value,HORIZONTAL_ALIGNMENT_LEFT,available,actual,color)
+
 func _draw_hud(size: Vector2) -> void:
  var font: Font = ThemeDB.fallback_font
- draw_rect(Rect2(0,0,size.x,48),Color(0.04,0.09,0.10,0.9))
- var hud: String = "%.0f €    Ingresos %.0f € · Gastos %.0f €    Penalización hoy %.0f €    Viajes %d    Día %d    %s" % [state.money,state.income,state.expenses,state.today_penalties,state.completed,1+int(state.elapsed/120.0),"Pausa" if simulation_speed == 0 else str(simulation_speed)+"×"]
- draw_string(font,Vector2(20,31),hud,HORIZONTAL_ALIGNMENT_LEFT,-1,19,Color.WHITE)
- draw_rect(Rect2(0,size.y-86,size.x,86),Color(0.04,0.09,0.10,0.94))
+ var scale: float = float(settings.get("ui_scale",1.0))
+ var heading_size: int = roundi(19*scale)
+ var help_size: int = roundi(16*scale)
+ var top_height: float = 68.0*scale
+ var bottom_height: float = 92.0*scale
+ draw_rect(Rect2(0,0,size.x,top_height),Color(0.04,0.09,0.10,0.9))
+ var first: String = "%.0f €   ·   Ingresos %.0f €   ·   Gastos %.0f €" % [state.money,state.income,state.expenses]
+ var second: String = "Penalización hoy %.0f €   ·   Viajes %d   ·   Día %d   ·   %s" % [state.today_penalties,state.completed,1+int(state.elapsed/120.0),"Pausa" if simulation_speed == 0 else str(simulation_speed)+"×"]
+ _draw_fit(font,Vector2(20,27*scale),first,heading_size,size.x-40,Color.WHITE)
+ _draw_fit(font,Vector2(20,55*scale),second,heading_size,size.x-40,Color.WHITE)
+ draw_rect(Rect2(0,size.y-bottom_height,size.x,bottom_height),Color(0.04,0.09,0.10,0.94))
  var details: String = "%s · %s · (%d, %d) · %s" % [tool,Balance.ROADS[selected_type].name,cursor.x,cursor.y,state.world.terrain(cursor)]
  if drawing:
   if proposal.has("error"): details += " · " + str(proposal.error)
   elif proposal.has("length"): details += " · %.0f € · puente %d" % [state.price(proposal,selected_type),proposal.water]
- draw_string(font,Vector2(20,size.y-53),details,HORIZONTAL_ALIGNMENT_LEFT,-1,19,Color("f5e6ad"))
- var help: String = "A marcar / confirmar   B cancelar / demoler   Y inspector   X menú   LB/RB vía   Start pausa" if last_device == "mando" else "Intro marcar / confirmar   Esc cancelar / demoler   I inspector   M menú   Q/E vía   P pausa   Tab herramienta"
- draw_string(font,Vector2(20,size.y-22),help,HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color.WHITE)
- if view_mode == "tráfico":
-  draw_rect(Rect2(20,size.y-124,560,30),Color(0.04,0.09,0.10,0.9))
-  draw_string(font,Vector2(30,size.y-103),"Tráfico: verde fluido · ámbar cargado · rojo saturado",HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color.WHITE)
- if view_mode == "conservación":
-  draw_rect(Rect2(20,size.y-124,590,30),Color(0.04,0.09,0.10,0.9))
-  draw_string(font,Vector2(30,size.y-103),"Conservación: verde ≥ 60% · ámbar < 60% · barrera = cierre",HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color.WHITE)
- if view_mode == "demanda":
-  draw_rect(Rect2(20,size.y-124,550,30),Color(0.04,0.09,0.10,0.9))
-  draw_string(font,Vector2(30,size.y-103),"Demanda potencial estimada por día hacia ciudades cercanas",HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color.WHITE)
+ _draw_fit(font,Vector2(20,size.y-bottom_height+25*scale),details,heading_size,size.x-40,Color("f5e6ad"))
+ var help_a: String = "A marcar / confirmar   B cancelar / demoler   Y inspector" if last_device == "mando" else "%s marcar / confirmar   %s cancelar / demoler   %s inspector" % [_key_hint("accept_action","Intro"),_key_hint("back_action","Esc"),_key_hint("inspect_action","I")]
+ var help_b: String = "X menú   LB/RB vía   LB+RB herramienta   Start pausa" if last_device == "mando" else "%s menú   %s/%s vía   %s pausa   %s herramienta" % [_key_hint("menu_action","M"),_key_hint("road_prev","Q"),_key_hint("road_next","E"),_key_hint("pause_action","P"),_key_hint("tool_action","Tab")]
+ _draw_fit(font,Vector2(20,size.y-bottom_height+52*scale),help_a,help_size,size.x-40,Color.WHITE)
+ _draw_fit(font,Vector2(20,size.y-bottom_height+76*scale),help_b,help_size,size.x-40,Color.WHITE)
+ var legend: String = ""
+ if view_mode == "tráfico": legend = "Tráfico: verde fluido · ámbar cargado · rojo saturado"
+ elif view_mode == "conservación": legend = "Conservación: verde ≥ 60% · ámbar < 60% · barrera = cierre"
+ elif view_mode == "demanda": legend = "Demanda potencial estimada por día hacia ciudades cercanas"
+ if not legend.is_empty():
+  draw_rect(Rect2(20,size.y-bottom_height-34*scale,minf(size.x-40,650*scale),30*scale),Color(0.04,0.09,0.10,0.9))
+  _draw_fit(font,Vector2(30,size.y-bottom_height-12*scale),legend,help_size,size.x-60,Color.WHITE)
  if notice_time > 0.0:
-  draw_rect(Rect2(20,60,minf(size.x-40,900),38),Color(0.06,0.12,0.13,0.93))
-  draw_string(font,Vector2(32,85),notice,HORIZONTAL_ALIGNMENT_LEFT,-1,18,Color.WHITE)
+  draw_rect(Rect2(20,top_height+12,minf(size.x-40,1000*scale),38*scale),Color(0.06,0.12,0.13,0.93))
+  _draw_fit(font,Vector2(32,top_height+37*scale),notice,roundi(18*scale),minf(size.x-64,976*scale),Color.WHITE)

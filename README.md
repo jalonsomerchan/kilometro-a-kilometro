@@ -22,14 +22,14 @@ El terreno se calcula con coordenadas globales y semilla; las ciudades aparecen 
 | Menú | M | X |
 | Tipo de vía | Q / E | LB / RB |
 | Zoom | − / + | LT / RT |
-| Herramienta | Tab o menú | Menú |
+| Herramienta | Tab o menú | LB + RB o menú |
 | Pausa | P | Start |
 
 En el menú se puede elegir la velocidad y las herramientas. El estado de las obras se muestra en el inspector. Las reparaciones y mejoras cierran temporalmente el tramo y tienen presupuesto de confirmación.
 
 ## Estado y limitaciones
 
-Esta entrega es un **prototipo vertical**, no una versión completa para Steam. Los vehículos pueden atravesar varios tramos y cruzar entre carreteras a nivel; las rutas usan tiempo estimado y evitan obras. En el menú de partida, «Cruces» permite escoger un paso elevado para una obra nueva; se comprueban rampas y la vía inferior queda independiente. Las rutas priorizan el tiempo estimado según velocidad, conservación, nieve, ocupación y STOP. Los vehículos en camino pueden reevaluar en cruces a nivel, con un límite de cálculos por paso. Aún no hay ramales de enlace para conectar niveles ni una simulación detallada de colas en cruces. Para limitar el coste de cálculo, la demanda considera las primeras 24 ciudades conocidas y hasta seis destinos cercanos por ciudad, con un máximo de 300 vehículos simultáneos. Los puentes de agua tienen conservación y reparación propias, aunque su cierre afecta al tramo completo. Las obras se pueden iniciar o programar para el periodo de menor demanda; se revisa el aislamiento antes de iniciarlas. Hay mantenimiento preventivo y señales STOP y ceda por entrada, con una coordinación básica en el cruce. Las autopistas admiten peaje; hay contratos de conexión, un préstamo limitado y desbloqueos por viajes, ciudades conectadas y fiabilidad. Quedan pendientes otros tipos de contrato y una elección de ruta sensible al precio del peaje. Hay eventos básicos de nevada, incendio, crecida, desprendimiento y feria sobre un tramo: todavía no simulan propagación regional, previsión ni todos los efectos detallados del diseño. La vista de tráfico muestra ocupación por tramo; la vista de demanda aún no representa métricas específicas en el mapa. El trazado admite un punto intermedio, pero sigue siendo síncrono y está limitado a 110 casillas por etapa. Las curvas se suavizan dentro de las casillas ocupadas, pero todavía no se validan radios mínimos ni el ancho completo frente al terreno. No se han implementado ajustes persistentes, reasignación de teclas ni escala de interfaz. No hay música ni efectos. La generación de ciudades no comprueba todas las conexiones entre bloques ni la viabilidad global. El modo libre comparte la zona inicial preparada. Las obras dejan salir a los vehículos que ya están en el tramo; los vehículos que encuentran un cierre al cambiar de tramo buscan otra ruta. El análisis de aislamiento comprueba como máximo las primeras doce ciudades conocidas. Estas limitaciones deben resolverse antes de distribuir el juego.
+Esta entrega es un **prototipo vertical**, no una versión completa para Steam. Los vehículos pueden atravesar varios tramos y cruzar entre carreteras a nivel; las rutas usan tiempo estimado y evitan obras. En el menú de partida, «Cruces» permite escoger un paso elevado para una obra nueva; se comprueban rampas y la vía inferior queda independiente. Las rutas priorizan el tiempo estimado según velocidad, conservación, nieve, ocupación y STOP. Los vehículos en camino pueden reevaluar en cruces a nivel, con un límite de cálculos por paso. Aún no hay ramales de enlace para conectar niveles ni una simulación detallada de colas en cruces. Para limitar el coste de cálculo, la demanda considera las primeras 24 ciudades conocidas y hasta seis destinos cercanos por ciudad, con un máximo de 300 vehículos simultáneos. Los puentes de agua tienen conservación y reparación propias, aunque su cierre afecta al tramo completo. Las obras se pueden iniciar o programar para el periodo de menor demanda; se revisa el aislamiento antes de iniciarlas. Hay mantenimiento preventivo y señales STOP y ceda por entrada, con una coordinación básica en el cruce. Las autopistas admiten peaje; hay contratos de conexión, un préstamo limitado y desbloqueos por viajes, ciudades conectadas y fiabilidad. Quedan pendientes otros tipos de contrato y una elección de ruta sensible al precio del peaje. Hay eventos regionales de nevada, incendio, crecida, desprendimiento y feria; la simulación de su propagación y gravedad sigue siendo simplificada. Las vistas de tráfico, conservación y demanda muestran información y leyendas. El trazado admite un punto intermedio, pero sigue siendo síncrono y está limitado a 110 casillas por etapa. Las curvas se suavizan dentro de las casillas ocupadas, pero todavía no se validan radios mínimos ni el ancho completo frente al terreno. Los ajustes de pantalla, cuadrícula, escala y teclado se guardan por separado; todavía no hay ajustes de música o efectos porque no hay audio. No hay música ni efectos. La generación de ciudades no comprueba todas las conexiones entre bloques ni la viabilidad global. El modo libre comparte la zona inicial preparada. Las obras dejan salir a los vehículos que ya están en el tramo; los vehículos que encuentran un cierre al cambiar de tramo buscan otra ruta. El análisis de aislamiento comprueba como máximo las primeras doce ciudades conocidas. Estas limitaciones deben resolverse antes de distribuir el juego.
 
 ## Obras, señales y punto intermedio
 
@@ -53,6 +53,12 @@ Las ciudades generan demanda según su población y distancia; el balance distin
 
 Por cada unidad completa de ocupación que supere la capacidad se cargan 2,5 € por segundo de simulación, proporcionalmente al exceso. Al completar un viaje se cobran 4 € por cada segundo que exceda 1,6 veces la distancia directa (con un mínimo de 3 segundos), hasta el 80 % del pago de ese viaje. La distancia se mide en casillas y el tiempo en segundos de simulación; las penalizaciones acumuladas y diarias están en «Balance y tráfico». Los parámetros están en `scripts/balance.gd`.
 
+## Eventos y opciones
+
+Las nevadas, crecidas y ferias pueden anunciarse antes de empezar. Los sucesos afectan a una zona de carreteras; los incendios pueden extenderse a vías forestales cercanas. En «Avisos y eventos» se pueden consultar las consecuencias, ir al tramo afectado y pagar para despejar de forma individual tramos con nieve o desprendimientos. Una feria incrementa la demanda hacia la ciudad más próxima.
+
+Las opciones están disponibles desde el menú principal y durante la partida. Permiten cambiar pantalla, cuadrícula y escala, reasignar teclas y restaurar los controles predeterminados. Los ajustes se guardan en `user://settings.cfg`. En mando, LB + RB cambia de herramienta y una pulsación individual cambia el tipo de vía.
+
 ## Comprobación automatizada
 
 Con Godot instalado, desde la carpeta del proyecto:
@@ -74,6 +80,11 @@ godot --headless --path . --script res://tests/works_signals_smoke.gd
 godot --headless --path . --script res://tests/bridge_works_smoke.gd
 godot --headless --path . --script res://tests/overpass_smoke.gd
 godot --headless --path . --script res://tests/events_smoke.gd
+godot --headless --path . --script res://tests/regional_events_smoke.gd
+godot --headless --path . --script res://tests/fire_spread_smoke.gd
+godot --headless --path . --script res://tests/settings_smoke.gd
+godot --headless --path . --script res://tests/navigation_events_ui_smoke.gd
+godot --headless --path . --script res://tests/controller_combo_smoke.gd
 ```
 
 Las pruebas comprueban determinismo del terreno, construcción y cobro único, rutas por varios tramos, cruces, cierres, zoom por teclado y reconstrucción del estado serializado. No sustituye a una prueba interactiva de mando ni a una verificación visual.

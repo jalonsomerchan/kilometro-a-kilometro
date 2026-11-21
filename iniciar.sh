@@ -3,7 +3,7 @@
 
 GAME_DIR="$HOME/Games/kilometro-a-kilometro"
 
-PY_URL="https://raw.githubusercontent.com/jalonsomerchan/kilometro-a-kilometro/main/launcher.py"
+PY_URL="https://raw.githubusercontent.com/jalonsomerchan/kilometro-a-kilometro/master/launcher.py"
 
 mkdir -p "$GAME_DIR"
 cd "$GAME_DIR" || exit 1

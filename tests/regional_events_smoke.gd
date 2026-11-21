@@ -23,5 +23,12 @@ func _initialize() -> void:
  GameEvents.advance(second,5.0)
  assert(second.events.is_empty())
  assert(int(second.roads[0].snow_count)==0 and int(second.roads[1].snow_count)==0)
+ var fair := GameState.new(1)
+ fair.cities = [{"name":"A","x":0,"y":0,"population":1000,"completed":{}},{"name":"B","x":4,"y":0,"population":1000,"completed":{}}]
+ fair.roads = [b.duplicate(true)]
+ var fair_event: Dictionary = GameEvents.start(fair,"fair",2,10.0)
+ assert(int(fair_event.target_city)==1)
+ fair._generate_demand(1.0)
+ assert(is_equal_approx(float(fair.demand_credit["0:1"]),2.0*float(fair.demand_credit["1:0"])))
  print("REGIONAL EVENTS OK: previsión, zona, despeje y reanudación")
  quit()
