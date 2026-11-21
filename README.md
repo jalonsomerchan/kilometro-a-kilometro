@@ -22,7 +22,7 @@ El terreno se calcula con coordenadas globales y semilla; las ciudades aparecen 
 | Menú | M | X |
 | Tipo de vía | Q / E | LB / RB |
 | Zoom | − / + | LT / RT |
-| Herramienta | Tab o menú | LB + RB o menú |
+| Herramienta anterior / siguiente | F8 / Tab | L5 / R5; también LB + RB para avanzar |
 | Pausa | P | Start |
 | Ir al tramo del aviso visible | F6 | R4 |
 | Descartar aviso visible | F7 | L4 |
@@ -59,7 +59,7 @@ Por cada unidad completa de ocupación que supere la capacidad se cargan 2,5 €
 
 Las nevadas, crecidas y ferias pueden anunciarse antes de empezar. Los sucesos afectan a una zona de carreteras; los incendios pueden extenderse a vías forestales cercanas. En «Avisos y eventos» se pueden consultar las consecuencias, ir al tramo afectado y pagar para despejar de forma individual tramos con nieve o desprendimientos. Mientras aparece un aviso, R4 (F6 en teclado) lleva al tramo asociado y L4 (F7) oculta el aviso sin cancelar el evento. Si Steam Input no expone los botones traseros, asigna R4 a F6 y L4 a F7 en la configuración del mando de Steam. Una feria incrementa la demanda hacia la ciudad más próxima.
 
-Las opciones están disponibles desde el menú principal y durante la partida. Permiten cambiar pantalla, cuadrícula y escala, reasignar teclas y restaurar los controles predeterminados. Los ajustes se guardan en `user://settings.cfg`. En mando, LB + RB cambia de herramienta y una pulsación individual cambia el tipo de vía.
+Las opciones están disponibles desde el menú principal y durante la partida. Permiten cambiar pantalla, cuadrícula y escala, reasignar teclas y restaurar los controles predeterminados. Los ajustes se guardan en `user://settings.cfg`. En mando, L5 y R5 cambian de herramienta hacia atrás y hacia delante; LB + RB también avanza y una pulsación individual de LB o RB cambia el tipo de vía. Si Steam Input no expone L5 o R5, asígnalos a F8 y Tab respectivamente.
 
 ## Comprobación automatizada
 

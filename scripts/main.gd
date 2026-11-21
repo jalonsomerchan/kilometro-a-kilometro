@@ -46,8 +46,8 @@ var shoulder_combo_used: bool = false
 var focus_memory: Dictionary = {}
 var menu_direction_time: int = -1000
 const MENU_DIRECTION_INTERVAL_MS: int = 200
-const CONTROL_LABELS: Dictionary = {"move_up":"Mover arriba","move_down":"Mover abajo","move_left":"Mover izquierda","move_right":"Mover derecha","accept_action":"Aceptar","back_action":"Cancelar","inspect_action":"Inspector","menu_action":"Menú","road_prev":"Vía anterior","road_next":"Vía siguiente","pause_action":"Pausa","tool_action":"Herramienta","zoom_in":"Acercar","zoom_out":"Alejar","notice_go":"Ir al aviso","notice_dismiss":"Descartar aviso"}
-const DEFAULT_KEYS: Dictionary = {"move_up":[KEY_UP,KEY_W],"move_down":[KEY_DOWN,KEY_S],"move_left":[KEY_LEFT,KEY_A],"move_right":[KEY_RIGHT,KEY_D],"accept_action":[KEY_ENTER,KEY_SPACE],"back_action":[KEY_ESCAPE,KEY_DELETE],"inspect_action":[KEY_I],"menu_action":[KEY_M],"road_prev":[KEY_Q],"road_next":[KEY_E],"pause_action":[KEY_P],"tool_action":[KEY_TAB],"zoom_in":[KEY_EQUAL,KEY_KP_ADD],"zoom_out":[KEY_MINUS,KEY_KP_SUBTRACT],"notice_go":[KEY_F6],"notice_dismiss":[KEY_F7]}
+const CONTROL_LABELS: Dictionary = {"move_up":"Mover arriba","move_down":"Mover abajo","move_left":"Mover izquierda","move_right":"Mover derecha","accept_action":"Aceptar","back_action":"Cancelar","inspect_action":"Inspector","menu_action":"Menú","road_prev":"Vía anterior","road_next":"Vía siguiente","pause_action":"Pausa","tool_action":"Herramienta siguiente","tool_previous":"Herramienta anterior","zoom_in":"Acercar","zoom_out":"Alejar","notice_go":"Ir al aviso","notice_dismiss":"Descartar aviso"}
+const DEFAULT_KEYS: Dictionary = {"move_up":[KEY_UP,KEY_W],"move_down":[KEY_DOWN,KEY_S],"move_left":[KEY_LEFT,KEY_A],"move_right":[KEY_RIGHT,KEY_D],"accept_action":[KEY_ENTER,KEY_SPACE],"back_action":[KEY_ESCAPE,KEY_DELETE],"inspect_action":[KEY_I],"menu_action":[KEY_M],"road_prev":[KEY_Q],"road_next":[KEY_E],"pause_action":[KEY_P],"tool_action":[KEY_TAB],"tool_previous":[KEY_F8],"zoom_in":[KEY_EQUAL,KEY_KP_ADD],"zoom_out":[KEY_MINUS,KEY_KP_SUBTRACT],"notice_go":[KEY_F6],"notice_dismiss":[KEY_F7]}
 
 func _ready() -> void:
  settings = SettingsStore.read_settings()
@@ -86,7 +86,7 @@ func _configure_input() -> void:
    var event := InputEventKey.new()
    event.physical_keycode = key
    InputMap.action_add_event(pair[0],event)
- var joy: Dictionary = {"move_up":JOY_BUTTON_DPAD_UP,"move_down":JOY_BUTTON_DPAD_DOWN,"move_left":JOY_BUTTON_DPAD_LEFT,"move_right":JOY_BUTTON_DPAD_RIGHT,"accept_action":JOY_BUTTON_A,"back_action":JOY_BUTTON_B,"inspect_action":JOY_BUTTON_Y,"menu_action":JOY_BUTTON_X,"road_prev":JOY_BUTTON_LEFT_SHOULDER,"road_next":JOY_BUTTON_RIGHT_SHOULDER,"pause_action":JOY_BUTTON_START,"notice_go":JOY_BUTTON_PADDLE1,"notice_dismiss":JOY_BUTTON_PADDLE2}
+ var joy: Dictionary = {"move_up":JOY_BUTTON_DPAD_UP,"move_down":JOY_BUTTON_DPAD_DOWN,"move_left":JOY_BUTTON_DPAD_LEFT,"move_right":JOY_BUTTON_DPAD_RIGHT,"accept_action":JOY_BUTTON_A,"back_action":JOY_BUTTON_B,"inspect_action":JOY_BUTTON_Y,"menu_action":JOY_BUTTON_X,"road_prev":JOY_BUTTON_LEFT_SHOULDER,"road_next":JOY_BUTTON_RIGHT_SHOULDER,"pause_action":JOY_BUTTON_START,"notice_go":JOY_BUTTON_PADDLE1,"notice_dismiss":JOY_BUTTON_PADDLE2,"tool_action":JOY_BUTTON_PADDLE3,"tool_previous":JOY_BUTTON_PADDLE4}
  for action: String in joy:
   var event := InputEventJoypadButton.new()
   event.button_index = joy[action]
@@ -207,6 +207,7 @@ func _unhandled_input(event: InputEvent) -> void:
  elif event.is_action_pressed("road_next"): selected_type = (selected_type + 1) % 7; _refresh_proposal(); _road_type_notice()
  elif event.is_action_pressed("pause_action"): simulation_speed = 1 if simulation_speed == 0 else 0
  elif event.is_action_pressed("tool_action"): _cycle_tool()
+ elif event.is_action_pressed("tool_previous"): _cycle_tool(-1)
  else: return
  get_viewport().set_input_as_handled()
 
@@ -391,9 +392,9 @@ func _set_signal(road: Dictionary, index: int, direction: int, kind: String) -> 
  _close_panel()
  _notify("Señal actualizada para la entrada seleccionada.")
 
-func _cycle_tool() -> void:
+func _cycle_tool(direction: int = 1) -> void:
  var tools: Array[String] = ["Construir","Señalar","Reparar","Mejorar"]
- tool = tools[(tools.find(tool)+1)%tools.size()]
+ tool = tools[posmod(tools.find(tool)+direction,tools.size())]
  drawing = false
  _notify("Herramienta: " + tool)
 
@@ -1030,7 +1031,7 @@ func _draw_hud(size: Vector2) -> void:
   elif proposal.has("length"): details += " · %.0f € · puente %d" % [state.price(proposal,selected_type),proposal.water]
  _draw_fit(font,Vector2(20,size.y-bottom_height+25*scale),details,heading_size,size.x-40,Color("f5e6ad"))
  var help_a: String = "A marcar / confirmar   B cancelar / demoler   Y inspector" if last_device == "mando" else "%s marcar / confirmar   %s cancelar / demoler   %s inspector" % [_key_hint("accept_action","Intro"),_key_hint("back_action","Esc"),_key_hint("inspect_action","I")]
- var help_b: String = "X menú   LB/RB vía   LB+RB herramienta   Start pausa" if last_device == "mando" else "%s menú   %s/%s vía   %s pausa   %s herramienta" % [_key_hint("menu_action","M"),_key_hint("road_prev","Q"),_key_hint("road_next","E"),_key_hint("pause_action","P"),_key_hint("tool_action","Tab")]
+ var help_b: String = "X menú   LB/RB vía   L5/R5 herramienta   Start pausa" if last_device == "mando" else "%s menú   %s/%s vía   %s pausa   %s/%s herramienta" % [_key_hint("menu_action","M"),_key_hint("road_prev","Q"),_key_hint("road_next","E"),_key_hint("pause_action","P"),_key_hint("tool_previous","F8"),_key_hint("tool_action","Tab")]
  _draw_fit(font,Vector2(20,size.y-bottom_height+52*scale),help_a,help_size,size.x-40,Color.WHITE)
  _draw_fit(font,Vector2(20,size.y-bottom_height+76*scale),help_b,help_size,size.x-40,Color.WHITE)
  var legend: String = ""
