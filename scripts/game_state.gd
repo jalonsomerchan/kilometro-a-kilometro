@@ -21,6 +21,7 @@ var cursor_y: int = 4
 var interrupted: int = 0
 var route_cache: Dictionary = {}
 var events: Array = []
+var forecasts: Array = []
 var next_event: float = 240.0
 var latest_notice: String = ""
 var notice_road: int = -1
@@ -117,7 +118,9 @@ func step(dt: float) -> void:
   var road: Dictionary = roads[posmod(seed_value + int(elapsed / 240.0), roads.size())]
   var kinds: Array[String] = ["snow","fire","landslide","fair"]
   if int(road.get("water",0)) > 0: kinds.append("flood")
-  GameEvents.start(self,kinds[posmod(seed_value + int(elapsed / 240.0),kinds.size())],int(road.id))
+  var kind: String = kinds[posmod(seed_value + int(elapsed / 240.0),kinds.size())]
+  if kind in ["snow","flood","fair"]: GameEvents.forecast(self,kind,int(road.id))
+  else: GameEvents.start(self,kind,int(road.id))
  for road: Dictionary in roads:
   _process_scheduled_work(road)
   if float(road.work) > 0.0:
@@ -238,8 +241,6 @@ func _generate_demand(dt: float) -> void:
  var budget: int = 12
  var phase: float = fposmod(elapsed,Balance.DAY_SECONDS)/Balance.DAY_SECONDS
  var multiplier: float = 0.55 if phase >= 0.75 else 1.0
- for event: Dictionary in events:
-  if event.kind == "fair": multiplier *= 2.0; break
  for origin: int in range(count):
   var candidates: Array = []
   for target: int in range(count):
@@ -250,7 +251,10 @@ func _generate_demand(dt: float) -> void:
    var distance: float = _city_position(origin).distance_to(_city_position(destination))
    var population: float = sqrt(float(cities[origin].population)*float(cities[destination].population))
    var rate: float = minf(Balance.DEMAND_MAX_PER_PAIR,Balance.DEMAND_FACTOR*population/1500.0/(1.0+distance/30.0))*multiplier
-   var demand: float = rate*dt
+   var event_multiplier: float = 1.0
+   for event: Dictionary in events:
+    if event.kind == "fair" and int(event.get("target_city",-1)) == destination: event_multiplier *= 2.0
+   var demand: float = rate*dt*event_multiplier
    potential_demand += demand
    var key: String = "%d:%d" % [origin,destination]
    var credit: float = float(demand_credit.get(key,0.0))+demand
@@ -553,7 +557,7 @@ func _road_by_id(id: int) -> Dictionary:
  return {}
 
 func data() -> Dictionary:
- return {"version":1,"generator_version":1,"name":game_name,"seed":seed_value,"guided":guided,"money":money,"elapsed":elapsed,"completed":completed,"income":income,"expenses":expenses,"cities":cities,"chunks":chunks,"roads":roads,"vehicles":vehicles,"next_id":next_id,"spawn_clock":spawn_clock,"cursor_x":cursor_x,"cursor_y":cursor_y,"interrupted":interrupted,"events":events,"next_event":next_event,"latest_notice":latest_notice,"notice_road":notice_road,"demand_credit":demand_credit,"potential_demand":potential_demand,"started_trips":started_trips,"unmet_demand":unmet_demand,"congestion_fines":congestion_fines,"delay_fines":delay_fines,"today_penalties":today_penalties,"yesterday_penalties":yesterday_penalties,"late_trips":late_trips,"route_refresh_clock":route_refresh_clock,"junction_busy_until":junction_busy_until,"income_day_start":income_day_start,"expenses_day_start":expenses_day_start,"yesterday_income":yesterday_income,"yesterday_expenses":yesterday_expenses,"loan_taken":loan_taken,"loan_remaining":loan_remaining,"loan_overdue":loan_overdue,"contract":contract,"contracts_completed":contracts_completed,"toll_income":toll_income,"contract_income":contract_income,"contract_history":contract_history,"next_contract_check":next_contract_check,"saved_at":Time.get_datetime_string_from_system()}
+ return {"version":1,"generator_version":1,"name":game_name,"seed":seed_value,"guided":guided,"money":money,"elapsed":elapsed,"completed":completed,"income":income,"expenses":expenses,"cities":cities,"chunks":chunks,"roads":roads,"vehicles":vehicles,"next_id":next_id,"spawn_clock":spawn_clock,"cursor_x":cursor_x,"cursor_y":cursor_y,"interrupted":interrupted,"events":events,"forecasts":forecasts,"next_event":next_event,"latest_notice":latest_notice,"notice_road":notice_road,"demand_credit":demand_credit,"potential_demand":potential_demand,"started_trips":started_trips,"unmet_demand":unmet_demand,"congestion_fines":congestion_fines,"delay_fines":delay_fines,"today_penalties":today_penalties,"yesterday_penalties":yesterday_penalties,"late_trips":late_trips,"route_refresh_clock":route_refresh_clock,"junction_busy_until":junction_busy_until,"income_day_start":income_day_start,"expenses_day_start":expenses_day_start,"yesterday_income":yesterday_income,"yesterday_expenses":yesterday_expenses,"loan_taken":loan_taken,"loan_remaining":loan_remaining,"loan_overdue":loan_overdue,"contract":contract,"contracts_completed":contracts_completed,"toll_income":toll_income,"contract_income":contract_income,"contract_history":contract_history,"next_contract_check":next_contract_check,"saved_at":Time.get_datetime_string_from_system()}
 
 static func from_data(d: Dictionary) -> GameState:
  var s := GameState.new(int(d.seed))
@@ -576,6 +580,7 @@ static func from_data(d: Dictionary) -> GameState:
  s.cursor_y = int(d.get("cursor_y",4))
  s.interrupted = int(d.get("interrupted",0))
  s.events = d.get("events",[])
+ s.forecasts = d.get("forecasts",[])
  s.next_event = float(d.get("next_event",240.0))
  s.latest_notice = str(d.get("latest_notice",""))
  s.notice_road = int(d.get("notice_road",-1))

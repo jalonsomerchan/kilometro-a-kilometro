@@ -502,19 +502,23 @@ func _traffic_summary() -> void:
 
 func _events_menu() -> void:
  var description: String = state.latest_notice if not state.latest_notice.is_empty() else "No hay avisos."
+ for prediction: Dictionary in state.forecasts:
+  description += "\nPrevisión: %s · zona (%d,%d) · comienza en %.0f s" % [GameEvents.TITLES.get(prediction.kind,prediction.kind),prediction.x,prediction.y,maxf(0.0,float(prediction.start_at)-state.elapsed)]
  for event: Dictionary in state.events:
-  description += "\n%s · tramo %d · quedan %.0f s" % [event.title,event.road_id,event.remaining]
+  GameEvents._legacy_entries(event)
+  description += "\n%s · inicio %.0f s · quedan %.0f s · %d tramos" % [event.title,event.started,event.remaining,event.affected.size()]
+  if event.has("center"): description += " · zona (%d,%d)" % [event.center[0],event.center[1]]
  _make_panel("Avisos y eventos",description,"events")
  for event: Dictionary in state.events:
   if event.kind in ["snow","landslide"]:
-   var cost: float = 350.0
-   if state.money >= cost:
-    _button("Despejar tramo %d · %.0f €" % [event.road_id,cost],func() -> void:
-     state.money -= cost
-     state.expenses += cost
-     event.remaining = 0.0
-     GameEvents.advance(state,0.0)
-     _events_menu())
+   for entry: Dictionary in event.affected:
+    if bool(entry.cleared): continue
+    var cost: float = 350.0
+    var road_id: int = int(entry.road_id)
+    if state.money >= cost:
+     _button("Despejar tramo %d · %.0f €" % [road_id,cost],func() -> void:
+      if GameEvents.clear_road(state,event,road_id): state.money -= cost; state.expenses += cost
+      _events_menu())
  if state.notice_road >= 0:
   _button("Ir al tramo afectado",func() -> void:
    var road: Dictionary = state._road_by_id(state.notice_road)
@@ -572,8 +576,10 @@ func _inspector() -> void:
   var load: float = float(state.traffic_load.get(int(road.id),0.0))
   desc += "\nOcupación: %d / %.1f (%.0f%%)\nVelocidad estimada: %.0f km/h\n%s" % [int(state.traffic_counts.get(int(road.id),0)),state.road_capacity(road),load*100.0,state.effective_speed(road),"Saturada: genera penalización" if load > Balance.CONGESTION_FINE_THRESHOLD else ("Cargada" if load >= Balance.CONGESTION_WARNING else "Fluida")]
  for event: Dictionary in state.events:
+  GameEvents._legacy_entries(event)
   for road: Dictionary in roads:
-   if int(event.road_id) == int(road.id): desc += "\n%s: quedan %.0f s%s" % [event.title,event.remaining," · CERRADA" if event.closed else ""]
+   for entry: Dictionary in event.affected:
+    if int(entry.road_id) == int(road.id) and not bool(entry.cleared): desc += "\n%s: quedan %.0f s%s" % [event.title,event.remaining," · CERRADA" if entry.closed else ""]
  _make_panel("Inspector",desc,"inspector")
  if not roads.is_empty() and int(roads[mini(selected_road,roads.size()-1)].type) == 6:
   var toll_road: Dictionary = roads[mini(selected_road,roads.size()-1)]
@@ -622,6 +628,11 @@ func _draw() -> void:
    if grid_visible and cell > 12.0: draw_rect(rect,Color(0.1,0.2,0.15,0.10),false,1.0)
  var cities: Array = state.cities if state != null else background_world.cities_for_chunk(Vector2i.ZERO)
  if state != null:
+  for event: Dictionary in state.events:
+   if event.has("center"):
+    var center_pos: Vector2 = offset+(Vector2(float(event.center[0]),float(event.center[1]))+Vector2(0.5,0.5))*cell
+    var event_color: Color = Color(0.85,0.35,0.22,0.30) if event.kind == "fire" else Color(0.65,0.78,0.92,0.34)
+    draw_arc(center_pos,float(event.radius)*cell,0.0,TAU,64,event_color,maxf(2.0,cell*0.08),true)
   geometry_anchors = _geometry_anchors()
   var junctions: Dictionary = _junctions()
   # Draw every shoulder before every surface so connected roads blend together.
