@@ -104,10 +104,13 @@ static func _distance_to_road(road: Dictionary, center: Vector2i) -> float:
  for p: Array in road.path: distance = minf(distance,Vector2(center).distance_to(Vector2(float(p[0]),float(p[1]))))
  return distance
 
-static func _road_has_forest(state: GameState, road: Dictionary) -> bool:
+static func road_has_terrain(state: GameState, road: Dictionary, terrains: Array[String]) -> bool:
  for p: Array in road.path:
-  if state.world.terrain(Vector2i(int(p[0]),int(p[1]))) == "bosque": return true
+  if terrains.has(state.world.terrain(Vector2i(int(p[0]),int(p[1])))): return true
  return false
+
+static func _road_has_forest(state: GameState, road: Dictionary) -> bool:
+ return road_has_terrain(state,road,["bosque"])
 
 static func _nearest_city(state: GameState, point: Vector2i) -> int:
  var result: int = -1

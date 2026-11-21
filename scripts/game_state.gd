@@ -116,7 +116,9 @@ func step(dt: float) -> void:
  if completed > 0 and elapsed >= next_event and not roads.is_empty():
   next_event = elapsed + 240.0
   var road: Dictionary = roads[posmod(seed_value + int(elapsed / 240.0), roads.size())]
-  var kinds: Array[String] = ["snow","fire","landslide","fair"]
+  var kinds: Array[String] = ["snow","fair"]
+  if GameEvents.road_has_terrain(self,road,["bosque"]): kinds.append("fire")
+  if GameEvents.road_has_terrain(self,road,["colina","roca"]): kinds.append("landslide")
   if int(road.get("water",0)) > 0: kinds.append("flood")
   var kind: String = kinds[posmod(seed_value + int(elapsed / 240.0),kinds.size())]
   if kind in ["snow","flood","fair"]: GameEvents.forecast(self,kind,int(road.id))

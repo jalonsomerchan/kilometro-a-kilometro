@@ -36,27 +36,53 @@ var zoom_in: bool = false
 var zoom_out: bool = false
 var shown_event_notice: String = ""
 var geometry_anchors: Dictionary = {}
+var settings: Dictionary = {}
+var waiting_binding: String = ""
+var settings_error: String = ""
+var shoulder_left: bool = false
+var shoulder_right: bool = false
+var shoulder_combo_used: bool = false
+var focus_memory: Dictionary = {}
+const CONTROL_LABELS: Dictionary = {"move_up":"Mover arriba","move_down":"Mover abajo","move_left":"Mover izquierda","move_right":"Mover derecha","accept_action":"Aceptar","back_action":"Cancelar","inspect_action":"Inspector","menu_action":"Menú","road_prev":"Vía anterior","road_next":"Vía siguiente","pause_action":"Pausa","tool_action":"Herramienta","zoom_in":"Acercar","zoom_out":"Alejar"}
+const DEFAULT_KEYS: Dictionary = {"move_up":[KEY_UP,KEY_W],"move_down":[KEY_DOWN,KEY_S],"move_left":[KEY_LEFT,KEY_A],"move_right":[KEY_RIGHT,KEY_D],"accept_action":[KEY_ENTER,KEY_SPACE],"back_action":[KEY_ESCAPE,KEY_DELETE],"inspect_action":[KEY_I],"menu_action":[KEY_M],"road_prev":[KEY_Q],"road_next":[KEY_E],"pause_action":[KEY_P],"tool_action":[KEY_TAB],"zoom_in":[KEY_EQUAL,KEY_KP_ADD],"zoom_out":[KEY_MINUS,KEY_KP_SUBTRACT]}
 
 func _ready() -> void:
+ settings = SettingsStore.read_settings()
+ grid_visible = bool(settings.grid)
+ if bool(settings.fullscreen): DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
  _configure_input()
  overlay = CanvasLayer.new()
  add_child(overlay)
  _show_title()
 
 func _configure_input() -> void:
- var bindings: Dictionary = {"move_up":[KEY_UP,KEY_W],"move_down":[KEY_DOWN,KEY_S],"move_left":[KEY_LEFT,KEY_A],"move_right":[KEY_RIGHT,KEY_D],"accept_action":[KEY_ENTER,KEY_SPACE],"back_action":[KEY_ESCAPE,KEY_DELETE],"inspect_action":[KEY_I],"menu_action":[KEY_M],"road_prev":[KEY_Q],"road_next":[KEY_E],"pause_action":[KEY_P],"tool_action":[KEY_TAB],"zoom_in":[KEY_EQUAL,KEY_KP_ADD],"zoom_out":[KEY_MINUS,KEY_KP_SUBTRACT]}
+ var bindings: Dictionary = DEFAULT_KEYS.duplicate(true)
+ for action: String in settings.get("keys",{}):
+  if bindings.has(action): bindings[action] = [int(settings.keys[action])]
  for action: String in bindings:
   if not InputMap.has_action(action): InputMap.add_action(action)
+  else: InputMap.action_erase_events(action)
   for key: int in bindings[action]:
    var event := InputEventKey.new()
    event.physical_keycode = key
    InputMap.action_add_event(action,event)
- # Logical symbols follow the active keyboard layout (on Spanish keyboards + is
- # not on the physical key used by US =). Keypad and physical bindings remain.
+ # Keep the active keyboard layout's + and − when zoom has default bindings.
  for binding: Array in [["zoom_in", KEY_PLUS], ["zoom_in", KEY_EQUAL], ["zoom_out", KEY_MINUS]]:
+  if settings.keys.has(binding[0]): continue
   var logical := InputEventKey.new()
   logical.keycode = binding[1]
   InputMap.action_add_event(binding[0], logical)
+ # Menu navigation includes the configured movement keys plus safe fallbacks.
+ for pair: Array in [["ui_up","move_up",KEY_UP],["ui_down","move_down",KEY_DOWN],["ui_left","move_left",KEY_LEFT],["ui_right","move_right",KEY_RIGHT],["ui_accept","accept_action",KEY_ENTER],["ui_cancel","back_action",KEY_ESCAPE]]:
+  for old: InputEvent in InputMap.action_get_events(pair[0]):
+   if old is InputEventKey: InputMap.action_erase_event(pair[0],old)
+  var values: Array = bindings[pair[1]].duplicate()
+  if not values.has(pair[2]): values.append(pair[2])
+  if pair[0] == "ui_accept" and not values.has(KEY_SPACE): values.append(KEY_SPACE)
+  for key: int in values:
+   var event := InputEventKey.new()
+   event.physical_keycode = key
+   InputMap.action_add_event(pair[0],event)
  var joy: Dictionary = {"move_up":JOY_BUTTON_DPAD_UP,"move_down":JOY_BUTTON_DPAD_DOWN,"move_left":JOY_BUTTON_DPAD_LEFT,"move_right":JOY_BUTTON_DPAD_RIGHT,"accept_action":JOY_BUTTON_A,"back_action":JOY_BUTTON_B,"inspect_action":JOY_BUTTON_Y,"menu_action":JOY_BUTTON_X,"road_prev":JOY_BUTTON_LEFT_SHOULDER,"road_next":JOY_BUTTON_RIGHT_SHOULDER,"pause_action":JOY_BUTTON_START}
  for action: String in joy:
   var event := InputEventJoypadButton.new()
@@ -68,6 +94,51 @@ func _configure_input() -> void:
   event.axis_value = axis_data[2]
   InputMap.action_add_event(axis_data[0],event)
   InputMap.action_set_deadzone(axis_data[0],0.4)
+
+func _input(event: InputEvent) -> void:
+ if event is InputEventJoypadButton or event is InputEventJoypadMotion: last_device = "mando"
+ elif event is InputEventKey: last_device = "teclado"
+ if screen == "game" and event is InputEventJoypadButton and event.button_index in [JOY_BUTTON_LEFT_SHOULDER,JOY_BUTTON_RIGHT_SHOULDER]:
+  var left: bool = event.button_index == JOY_BUTTON_LEFT_SHOULDER
+  if left: shoulder_left = event.pressed
+  else: shoulder_right = event.pressed
+  if event.pressed and shoulder_left and shoulder_right and not shoulder_combo_used:
+   shoulder_combo_used = true
+   _cycle_tool()
+  elif not event.pressed and not shoulder_combo_used:
+   selected_type = posmod(selected_type + (-1 if left else 1),7)
+   _refresh_proposal()
+   _road_type_notice()
+  if not shoulder_left and not shoulder_right: shoulder_combo_used = false
+  get_viewport().set_input_as_handled()
+  return
+ if waiting_binding.is_empty() or not event is InputEventKey or not event.pressed or event.echo: return
+ var key: int = event.physical_keycode if event.physical_keycode != 0 else event.keycode
+ if key in [KEY_SHIFT,KEY_CTRL,KEY_ALT,KEY_META]: return
+ if key == KEY_ESCAPE:
+  waiting_binding = ""
+  get_viewport().set_input_as_handled()
+  _controls_menu()
+  return
+ # Avoid silently stealing another action's key.
+ for action: String in DEFAULT_KEYS:
+  if action == waiting_binding: continue
+  var values: Array = [int(settings.keys[action])] if settings.keys.has(action) else DEFAULT_KEYS[action]
+  if values.has(key):
+   _notify("Esa tecla ya está asignada a " + str(CONTROL_LABELS[action]))
+   _controls_menu()
+   get_viewport().set_input_as_handled()
+   return
+ settings.keys[waiting_binding] = key
+ waiting_binding = ""
+ _configure_input()
+ _save_settings()
+ get_viewport().set_input_as_handled()
+ _controls_menu()
+
+func _save_settings() -> void:
+ settings_error = "" if SettingsStore.write_settings(settings) == OK else "No se pudieron guardar los ajustes."
+ if not settings_error.is_empty(): _notify(settings_error)
 
 func _process(delta: float) -> void:
  if notice_time > 0.0: notice_time -= delta
@@ -310,13 +381,20 @@ func _cycle_tool() -> void:
 
 func _make_panel(heading: String, description: String, next_screen: String) -> void:
  screen = next_screen
+ shoulder_left = false
+ shoulder_right = false
+ shoulder_combo_used = false
  for child: Node in overlay.get_children(): child.queue_free()
  panel = PanelContainer.new()
  panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
- panel.offset_left = -350
- panel.offset_right = 350
- panel.offset_top = -330
- panel.offset_bottom = 330
+ var ui_scale: float = float(settings.get("ui_scale",1.0))
+ var viewport: Vector2 = get_viewport_rect().size
+ var half_width: float = minf(350.0*ui_scale,viewport.x*0.48)
+ var half_height: float = minf(330.0*ui_scale,viewport.y*0.46)
+ panel.offset_left = -half_width
+ panel.offset_right = half_width
+ panel.offset_top = -half_height
+ panel.offset_bottom = half_height
  var style := StyleBoxFlat.new()
  style.bg_color = Color(0.055,0.10,0.12,0.97)
  style.border_color = Color("c9d9bf")
@@ -334,27 +412,41 @@ func _make_panel(heading: String, description: String, next_screen: String) -> v
  scroll.add_child(column)
  title_label = Label.new()
  title_label.text = heading
- title_label.add_theme_font_size_override("font_size",30)
+ title_label.add_theme_font_size_override("font_size",roundi(30*float(settings.get("ui_scale",1.0))))
  column.add_child(title_label)
  if not description.is_empty(): _label(description)
+ _label("A aceptar · B volver" if last_device == "mando" else "Intro aceptar · Esc volver")
 
 func _label(value: String) -> void:
  var label := Label.new()
  label.text = value
  label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
- label.add_theme_font_size_override("font_size",18)
+ label.add_theme_font_size_override("font_size",roundi(18*float(settings.get("ui_scale",1.0))))
  column.add_child(label)
 
 func _button(label: String, action: Callable) -> Button:
  var button := Button.new()
  button.text = label
- button.custom_minimum_size.y = 40
- button.add_theme_font_size_override("font_size",19)
+ button.custom_minimum_size.y = 40*float(settings.get("ui_scale",1.0))
+ button.add_theme_font_size_override("font_size",roundi(19*float(settings.get("ui_scale",1.0))))
  button.pressed.connect(action)
+ var focus_screen: String = screen
+ button.focus_entered.connect(func() -> void: focus_memory[focus_screen] = button.text)
+ var focus_style := StyleBoxFlat.new()
+ focus_style.bg_color = Color.TRANSPARENT
+ focus_style.border_color = Color("f7db82")
+ focus_style.set_border_width_all(3)
+ focus_style.set_corner_radius_all(5)
+ button.add_theme_stylebox_override("focus",focus_style)
  column.add_child(button)
  return button
 
 func _focus_first() -> void:
+ var remembered: String = str(focus_memory.get(screen,""))
+ for child: Node in column.get_children():
+  if child is Button and child.text == remembered:
+   child.call_deferred("grab_focus")
+   return
  for child: Node in column.get_children():
   if child is Button or child is LineEdit:
    child.call_deferred("grab_focus")
@@ -429,10 +521,36 @@ func _load(path: String) -> void:
  _notify("Partida cargada.")
 
 func _options() -> void:
- _make_panel("Opciones y controles", "Flechas / WASD: mover · Intro / Espacio: aceptar\nEsc / Supr: volver o demoler · I: inspector · M: menú\nQ / E: tipo de vía · Tab: herramienta · P: pausa\n− / +: zoom · Mando: cruceta, A/B/X/Y, LB/RB y gatillos", "options")
- _button("Cuadrícula: " + ("visible" if grid_visible else "oculta"),func() -> void: grid_visible = not grid_visible; _options())
- _button("Ventana / pantalla completa",func() -> void: DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN))
- _button("Volver",func() -> void: _show_title())
+ _make_panel("Opciones", "Los ajustes se comparten entre partidas." + ("\n" + settings_error if not settings_error.is_empty() else ""),"options")
+ _button("Cuadrícula: " + ("visible" if grid_visible else "oculta"),func() -> void: grid_visible = not grid_visible; settings.grid = grid_visible; _save_settings(); _options())
+ _button("Pantalla: " + ("completa" if settings.fullscreen else "ventana"),func() -> void:
+  settings.fullscreen = not bool(settings.fullscreen)
+  DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if settings.fullscreen else DisplayServer.WINDOW_MODE_WINDOWED)
+  _save_settings(); _options())
+ _button("Escala de interfaz: %.0f%%" % (float(settings.ui_scale)*100.0),func() -> void:
+  settings.ui_scale = 1.0 if float(settings.ui_scale) >= 1.4 else snappedf(float(settings.ui_scale)+0.2,0.1)
+  _save_settings(); _options())
+ _button("Controles de teclado",func() -> void: _controls_menu())
+ _button("Volver",func() -> void: _options_back())
+ _focus_first()
+
+func _options_back() -> void:
+ if state != null: _game_menu()
+ else: _show_title()
+
+func _controls_menu() -> void:
+ var desc: String = "Elige una acción y pulsa la nueva tecla. Esc cancela. Flechas e Intro siguen disponibles para navegar."
+ if not waiting_binding.is_empty(): desc = "Pulsa una tecla para «%s». Esc cancela." % CONTROL_LABELS[waiting_binding]
+ if notice_time > 0.0 and not waiting_binding.is_empty(): desc += "\n" + notice
+ if not settings_error.is_empty(): desc += "\n" + settings_error
+ _make_panel("Controles de teclado",desc,"controls")
+ for action: String in CONTROL_LABELS:
+  var values: Array = [int(settings.keys[action])] if settings.keys.has(action) else DEFAULT_KEYS[action]
+  var names: Array[String] = []
+  for key: int in values: names.append(OS.get_keycode_string(key))
+  _button("%s: %s" % [CONTROL_LABELS[action]," / ".join(names)],func() -> void: waiting_binding = action; _controls_menu())
+ _button("Restaurar controles predeterminados",func() -> void: settings.keys = {}; waiting_binding = ""; _configure_input(); _save_settings(); _controls_menu())
+ _button("Volver",func() -> void: waiting_binding = ""; _options())
  _focus_first()
 
 func _about() -> void:
@@ -456,6 +574,7 @@ func _game_menu() -> void:
  _button("Cruces: " + ("paso elevado" if elevated_crossings else "a nivel"),func() -> void: elevated_crossings = not elevated_crossings; _refresh_proposal(); _game_menu())
  _button("Velocidad: %s" % ("pausa" if simulation_speed == 0 else str(simulation_speed)+"×"),func() -> void: simulation_speed = {0:1,1:2,2:4,4:0}[simulation_speed]; _game_menu())
  _button("Vista: " + view_mode,func() -> void: view_mode = {"normal":"tráfico","tráfico":"conservación","conservación":"demanda","demanda":"normal"}[view_mode]; _game_menu())
+ _button("Opciones",func() -> void: _options())
  _button("Economía y contratos",func() -> void: _economy_menu())
  _button("Balance y tráfico",func() -> void: _traffic_summary())
  _button("Avisos y eventos",func() -> void: _events_menu())
@@ -508,6 +627,9 @@ func _events_menu() -> void:
   GameEvents._legacy_entries(event)
   description += "\n%s · inicio %.0f s · quedan %.0f s · %d tramos" % [event.title,event.started,event.remaining,event.affected.size()]
   if event.has("center"): description += " · zona (%d,%d)" % [event.center[0],event.center[1]]
+  var effects: Dictionary = {"snow":"velocidad y capacidad reducidas; posibles cierres", "fire":"cierre, propagación y daños", "flood":"puentes cerrados y daños", "landslide":"carretera bloqueada", "fair":"mayor demanda hacia la ciudad"}
+  description += "\nEfectos: " + str(effects.get(event.kind,""))
+  if event.kind == "fair" and int(event.get("target_city",-1)) >= 0: description += " " + str(state.cities[int(event.target_city)].name)
  _make_panel("Avisos y eventos",description,"events")
  for event: Dictionary in state.events:
   if event.kind in ["snow","landslide"]:
@@ -598,7 +720,9 @@ func _toll_menu(road: Dictionary) -> void:
 func _back() -> void:
  match screen:
   "title": _quit_prompt()
-  "new", "load", "options", "about", "quit": _show_title()
+  "new", "load", "about", "quit": _show_title()
+  "options": _options_back()
+  "controls": waiting_binding = ""; _options()
   "return", "events", "traffic_summary", "economy": _game_menu()
   _: _close_panel()
 
@@ -653,14 +777,37 @@ func _draw() -> void:
   var pos: Vector2 = offset + Vector2(float(city.x)+0.5,float(city.y)+0.5)*cell
   if not Rect2(Vector2(-100,-100),size+Vector2(200,200)).has_point(pos): continue
   var radius: float = clampf(5.0+sqrt(float(city.population))/22.0,7.0,13.0)*zoom
+  if state != null and view_mode == "demanda":
+   var demand: float = _city_demand(city)
+   draw_arc(pos,radius+5.0+minf(12.0,demand/80.0),0.0,TAU,32,Color("edc76c"),2.5,true)
+   draw_string(ThemeDB.fallback_font,pos+Vector2(12,radius+15),"%.0f viajes/día" % demand,HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("243c38"))
   draw_circle(pos,radius,Color("30494a"))
   draw_rect(Rect2(pos-Vector2(radius*0.6,radius*0.65),Vector2(radius*1.2,radius*1.3)),Color("efe4c9"))
-  draw_string(ThemeDB.fallback_font,pos+Vector2(0,-radius-5),"%s · %s · %d hab." % [city.name,WorldGenerator.city_size(int(city.population)),city.population],HORIZONTAL_ALIGNMENT_CENTER,-1,16,Color("1a2c2c"))
+  var font := ThemeDB.fallback_font
+  var city_name: String = city.name
+  var city_details := "%s (%d hab.)" % [WorldGenerator.city_size(int(city.population)),city.population]
+  var details_y: float = pos.y-radius-5.0
+  draw_string(font,Vector2(pos.x-font.get_string_size(city_name,HORIZONTAL_ALIGNMENT_LEFT,-1,16).x/2.0,details_y-15.0),city_name,HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color("1a2c2c"))
+  draw_string(font,Vector2(pos.x-font.get_string_size(city_details,HORIZONTAL_ALIGNMENT_LEFT,-1,12).x/2.0,details_y),city_details,HORIZONTAL_ALIGNMENT_LEFT,-1,12,Color("1a2c2c"))
  if state != null:
   for vehicle: Dictionary in state.vehicles: _draw_vehicle(vehicle,offset,cell)
   var cpos: Vector2 = offset+Vector2(cursor)*cell
   draw_rect(Rect2(cpos,Vector2.ONE*cell),Color("fff1a5"),false,3.0)
   _draw_hud(size)
+
+func _city_demand(city: Dictionary) -> float:
+ var demand: float = 0.0
+ var count: int = 0
+ var nearby: Array = state.cities.duplicate()
+ nearby.sort_custom(func(a: Dictionary,b: Dictionary) -> bool:
+  return Vector2(float(city.x-a.x),float(city.y-a.y)).length() < Vector2(float(city.x-b.x),float(city.y-b.y)).length())
+ for other: Dictionary in nearby:
+  if is_same(other,city): continue
+  var distance: float = Vector2(float(city.x-other.x),float(city.y-other.y)).length()
+  demand += minf(Balance.DEMAND_MAX_PER_PAIR,Balance.DEMAND_FACTOR*sqrt(float(city.population)*float(other.population))/1500.0/(1.0+distance/30.0))*Balance.DAY_SECONDS
+  count += 1
+  if count >= Balance.DEMAND_DESTINATIONS: break
+ return demand
 
 func _road_width(road: Dictionary, cell: float) -> float:
  return maxf(3.0,cell*0.29*float(Balance.ROADS[int(road.type)].width))
@@ -831,6 +978,12 @@ func _draw_hud(size: Vector2) -> void:
  if view_mode == "tráfico":
   draw_rect(Rect2(20,size.y-124,560,30),Color(0.04,0.09,0.10,0.9))
   draw_string(font,Vector2(30,size.y-103),"Tráfico: verde fluido · ámbar cargado · rojo saturado",HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color.WHITE)
+ if view_mode == "conservación":
+  draw_rect(Rect2(20,size.y-124,590,30),Color(0.04,0.09,0.10,0.9))
+  draw_string(font,Vector2(30,size.y-103),"Conservación: verde ≥ 60% · ámbar < 60% · barrera = cierre",HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color.WHITE)
+ if view_mode == "demanda":
+  draw_rect(Rect2(20,size.y-124,550,30),Color(0.04,0.09,0.10,0.9))
+  draw_string(font,Vector2(30,size.y-103),"Demanda potencial estimada por día hacia ciudades cercanas",HORIZONTAL_ALIGNMENT_LEFT,-1,16,Color.WHITE)
  if notice_time > 0.0:
   draw_rect(Rect2(20,60,minf(size.x-40,900),38),Color(0.06,0.12,0.13,0.93))
   draw_string(font,Vector2(32,85),notice,HORIZONTAL_ALIGNMENT_LEFT,-1,18,Color.WHITE)
